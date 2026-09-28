@@ -53,6 +53,7 @@ require __DIR__ . '/../partials/head.php';
         :class="it.who.length ? 'tile' : 'rounded-[18px] border-[1.5px] border-dashed border-rose-300 bg-rose-50/70'">
         <div class="min-w-0 flex-1">
           <p class="text-[14px] font-bold text-ink">{{ it.name }}{{ it.qty > 1 ? ' ×' + it.qty : '' }}</p>
+          <p v-if="it.details" class="mt-0.5 text-[11.5px] text-slate-500">Includes {{ it.details }}</p>
           <p class="mt-0.5 text-[12px]" :class="it.who.length ? 'text-slate-400' : 'text-slate-500'">
             {{ !it.who.length ? (canEdit ? 'Tap to assign' : 'Not yet assigned') : it.qty > 1 ? pesoShort(it.unit_price) + ' each' : '1 item' }}
           </p>
@@ -62,7 +63,7 @@ require __DIR__ . '/../partials/head.php';
         <span class="w-16 text-right text-[15px] font-extrabold text-ink">{{ pesoShort(it.line_total) }}</span>
       </component>
     </div>
-    <p v-if="d.extras > 0" class="mt-3 text-center text-[12px] text-slate-400">+ {{ peso(d.extras) }} tax &amp; service charge, split equally</p>
+    <p v-if="d.extras > 0" class="mt-3 text-center text-[12px] text-slate-400">+ {{ peso(d.extras) }} {{ bill && bill.tax_included ? 'service charge' : 'tax & service charge' }}, split equally</p>
     <p v-if="bill.discount > 0" class="mt-1 text-center text-[12px] text-emerald-600">− {{ peso(bill.discount) }} receipt discount<span v-if="d.discount_by[me]"> · yours: {{ peso(d.discount_by[me]) }}</span></p>
   </div>
 

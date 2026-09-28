@@ -77,6 +77,7 @@ if (method() === 'GET') {
                 'creator_id'     => $bill['creator_id'],
                 'payer_id'       => $bill['payer_id'],
                 'tax'            => (float) $bill['tax'],
+                'tax_included'   => $calc['tax_included'],
                 'service_charge' => (float) $bill['service_charge'],
                 'discount'       => (float) $bill['discount'],
                 'invite_code'    => $creator ? $bill['invite_code'] : null,

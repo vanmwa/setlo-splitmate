@@ -94,6 +94,8 @@ function bill_items(int $billId): array
         'line_total'    => pesos((int) $i['qty'] * cents($i['unit_price'])),
         'source'        => $i['source'],
         'ocr_name'      => $i['ocr_name'],
+        'printed_name'  => $i['printed_name'],
+        'details'       => $i['details'],
         'needs_review'  => (bool) $i['needs_review'],
         'suggestion'    => $i['suggestion'],
         'was_corrected' => (bool) $i['was_corrected'],
@@ -148,9 +150,28 @@ function split_proportional(int $total, array $weights): array
 }
 
 /**
+ * Whether the tax is already inside the item prices (VAT-inclusive, the norm on PH receipts) rather than
+ * added on top. Decided against the printed receipt total: if adding the tax puts the bill off from the
+ * total but leaving it out matches (within ₱1 of per-unit rounding), the tax is only a breakdown line.
+ * With no printed total there's nothing to check against, so the tax stays an extra.
+ */
+function tax_included(array $bill, int $subtotal): bool
+{
+    $tax = cents($bill['tax']);
+    if ($tax <= 0 || $bill['receipt_total'] === null) {
+        return false;
+    }
+    $printed = cents($bill['receipt_total']);
+    $withoutTax = $subtotal + cents($bill['service_charge']) - cents($bill['discount'] ?? 0);
+    $offWithout = abs($withoutTax - $printed);
+    return $offWithout <= 100 && $offWithout < abs($withoutTax + $tax - $printed);
+}
+
+/**
  * Per-member share in cents:
  *  - each item is split equally among the members assigned to it;
- *  - tax + service charge are split equally among all members;
+ *  - tax + service charge are split equally among all members (tax only when it isn't already
+ *    included in the prices — see tax_included());
  *  - the receipt discount goes first to members flagged Senior/PWD (in proportion to what they ordered,
  *    up to their item total); anything left — or a promo discount with nobody flagged — is shared by
  *    everyone in proportion to their remaining (undiscounted) items.
@@ -177,7 +198,8 @@ function compute_shares(array $bill, array $members, array $items): array
         }
     }
     $itemShares = $shares;
-    $extras = cents($bill['tax']) + cents($bill['service_charge']);
+    $taxIncluded = tax_included($bill, $subtotal);
+    $extras = ($taxIncluded ? 0 : cents($bill['tax'])) + cents($bill['service_charge']);
     foreach (split_evenly($extras, $ids) as $uid => $c) {
         $shares[$uid] += $c;
     }
@@ -207,6 +229,7 @@ function compute_shares(array $bill, array $members, array $items): array
         'shares'           => $shares,
         'subtotal'         => $subtotal,
         'extras'           => $extras,
+        'tax_included'     => $taxIncluded,
         'discount'         => $discount,
         'discount_by'      => $discountBy,
         'total'            => $subtotal + $extras - $discount,
@@ -235,6 +258,8 @@ function settlement_row(array $s): array
         'bill_creator_id'=> (int) ($s['bill_creator_id'] ?? 0),
         'amount'         => (float) $s['amount'],
         'status'         => $s['status'],
+        'settle_method'  => $s['settle_method'] ?? null,
+        'online_started' => !empty($s['paymongo_session']),
         'paid_at'        => $s['paid_at'],
         'confirmed_at'   => $s['confirmed_at'],
         'disputed_at'    => $s['disputed_at'],
@@ -258,7 +283,8 @@ function bill_card(array $bill): array
     $id = (int) $bill['id'];
     $members = (int) q('SELECT COUNT(*) FROM bill_members WHERE bill_id = ?', [$id])->fetchColumn();
     $sub = (int) q('SELECT COALESCE(SUM(ROUND(qty * unit_price * 100)), 0) FROM receipt_items WHERE bill_id = ?', [$id])->fetchColumn();
-    $total = $sub + cents($bill['tax']) + cents($bill['service_charge']) - cents($bill['discount'] ?? 0);
+    $tax = tax_included($bill, $sub) ? 0 : cents($bill['tax']);
+    $total = $sub + $tax + cents($bill['service_charge']) - cents($bill['discount'] ?? 0);
 
     switch ($bill['status']) {
         case 'closed':

@@ -78,6 +78,8 @@ CREATE TABLE receipt_items (
   unit_price      DECIMAL(10,2) NOT NULL,
   source          ENUM('ocr','manual') NOT NULL DEFAULT 'manual',
   ocr_name        VARCHAR(120) NULL,              -- what OCR originally read, to measure correction rate
+  printed_name    VARCHAR(120) NULL,              -- the text exactly as printed (ocr_name is the plain-English version)
+  details         VARCHAR(255) NULL,              -- a meal set's contents, e.g. "Chicken, Rice, Iced Tea"
   needs_review    TINYINT(1) NOT NULL DEFAULT 0,  -- low-confidence read, must be confirmed on the Review screen
   suggestion      VARCHAR(120) NULL,              -- likely correct name for a misread item
   was_corrected   TINYINT(1) NOT NULL DEFAULT 0,
@@ -102,12 +104,14 @@ CREATE TABLE settlements (
   to_user_id      INT UNSIGNED NOT NULL,
   amount          DECIMAL(10,2) NOT NULL,
   status          ENUM('pending','awaiting','settled','disputed') NOT NULL DEFAULT 'pending',
+  settle_method   ENUM('online','transfer','cash') NULL, -- online = PayMongo checkout, transfer = ref/screenshot, cash = receiver settled in person
   paid_at         DATETIME NULL,
   confirmed_at    DATETIME NULL,
   disputed_at     DATETIME NULL,
   dispute_reason  VARCHAR(500) NULL,
   payment_ref     VARCHAR(60) NULL,               -- reference number the sender entered when marking paid
   proof_image     VARCHAR(255) NULL,              -- proof-of-payment screenshot (uploads/proofs)
+  paymongo_session VARCHAR(80) NULL,              -- latest PayMongo checkout session opened for this settlement
   created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (bill_id)      REFERENCES bills(id) ON DELETE CASCADE,
   FOREIGN KEY (from_user_id) REFERENCES users(id),

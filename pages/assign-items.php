@@ -43,6 +43,7 @@ require __DIR__ . '/../partials/head.php';
       <button v-for="it in items" :key="it.id" @click="toggle(it)" class="tile flex w-full items-center gap-3 p-4 text-left" :class="{ '!border-brand-200': it.who.includes(active), '!border-rose-200 !bg-rose-50/60': !it.who.length }">
         <div class="min-w-0 flex-1">
           <p class="text-[14px] font-bold text-ink">{{ it.name }}{{ it.qty > 1 ? ' ×' + it.qty : '' }}</p>
+          <p v-if="it.details" class="mt-0.5 text-[11.5px] text-slate-500">Includes {{ it.details }}</p>
           <p class="mt-0.5 text-[12px] text-slate-400">
             {{ peso(it.line_total) }} ·
             <span v-if="!it.who.length" class="font-semibold text-rose-500">not assigned</span>
@@ -61,7 +62,7 @@ require __DIR__ . '/../partials/head.php';
 
     <div v-if="extras > 0" class="mx-5 mt-3 flex items-center justify-between rounded-[18px] border border-brand-100 bg-brand-50/70 px-4 py-3">
       <div>
-        <p class="text-[13px] font-bold text-brand-900">Tax + service charge</p>
+        <p class="text-[13px] font-bold text-brand-900">{{ bill.tax_included ? 'Service charge' : 'Tax + service charge' }}</p>
         <p class="text-[12px] text-brand-700/80">Split equally · {{ peso(extras / members.length) }} each</p>
       </div>
       <span class="text-[14px] font-extrabold text-brand-900">{{ peso(extras) }}</span>
@@ -161,7 +162,7 @@ Setlo.mount({
   computed: {
     memberMap() { return Object.fromEntries(this.members.map((m) => [m.id, m])); },
     payer() { return this.bill && this.memberMap[this.bill.payer_id]; },
-    extras() { return this.bill ? Math.round((this.bill.tax + this.bill.service_charge) * 100) / 100 : 0; },
+    extras() { return this.bill ? Math.round(((this.bill.tax_included ? 0 : this.bill.tax) + this.bill.service_charge) * 100) / 100 : 0; },
     unassigned() { return this.items.filter((it) => !it.who.length); },
     unassignedCount() { return this.unassigned.length; },
     unassignedTotal() { return this.unassigned.reduce((s, it) => s + it.line_total, 0); },

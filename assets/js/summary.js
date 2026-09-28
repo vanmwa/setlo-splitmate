@@ -71,7 +71,7 @@
     text(ctx, data.name, PAD, 100, { size: 34, weight: 800, color: '#fff', max: W - PAD * 2 });
     text(ctx, peso(data.total), PAD, 150, { size: 40, weight: 800, color: '#fff' });
     const bits = [data.members.length + ' people'];
-    if (data.extras > 0) bits.push('incl. ' + peso(data.extras) + ' tax & service');
+    if (data.extras > 0) bits.push('incl. ' + peso(data.extras) + (data.tax_included ? ' service' : ' tax & service'));
     if (data.discount > 0) bits.push(peso(data.discount) + ' discount');
     text(ctx, bits.join(' · '), W - PAD, 150, { size: 17, weight: 600, color: 'rgba(255,255,255,.9)', align: 'right', max: 330 });
 
@@ -142,7 +142,7 @@
     return {
       name: d.bill.name,
       date: new Date(d.bill.created_at.replace(' ', 'T')).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }),
-      total: d.total, extras: d.extras, discount: d.bill.discount,
+      total: d.total, extras: d.extras, tax_included: d.bill.tax_included, discount: d.bill.discount,
       members: d.members.map((m) => ({ ...m, share: d.shares[m.id] || 0, paid: (d.payments && d.payments.paid[m.id]) || 0 })),
       transfers,
       note: d.settlements.length ? null : 'Proposed split — final once the bill starts settling.',

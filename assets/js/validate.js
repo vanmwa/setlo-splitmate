@@ -60,6 +60,13 @@
       if (t.length > 60) return 'Keep it to 60 characters or fewer.';
       return /^[\p{L}\d .·+\-()]+$/u.test(t) ? '' : 'Use letters, numbers, spaces and · . - + ( ) only.';
     },
+    gcash: (v) => {
+      const t = s(v).trim();
+      if (!t) return '';
+      if (!/^\d+$/.test(t)) return 'Use numbers only.';
+      if (!t.startsWith('09')) return 'GCash number must start with 09.';
+      return t.length === 11 ? '' : 'GCash number must be exactly 11 digits.';
+    },
     refNo: (v) => {
       const t = s(v).trim();
       if (!t) return '';

@@ -51,6 +51,16 @@ function valid_account(string $v): string
     return preg_match('/^[\p{L}\d .·+\-()]+$/u', $t) ? '' : 'Use letters, numbers, spaces and · . - + ( ) only.';
 }
 
+// Philippine mobile number: 09 followed by 9 more digits (11 in total).
+function valid_gcash(string $v): string
+{
+    $t = trim($v);
+    if ($t === '') {
+        return '';
+    }
+    return preg_match('/^09\d{9}$/', $t) ? '' : 'GCash number must start with 09 and be exactly 11 digits.';
+}
+
 function valid_ref(string $v): string
 {
     $t = trim($v);

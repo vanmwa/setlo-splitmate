@@ -34,8 +34,11 @@ require __DIR__ . '/../partials/head.php';
       <status-pill :status="s.status"></status-pill>
     </div>
 
-    <div v-if="s.payment_ref || s.has_proof" class="tile -mt-2 mb-5 flex items-center justify-between gap-3 p-3.5 text-[13px]">
-      <span class="text-slate-600">{{ s.payment_ref ? 'Ref no. ' + s.payment_ref : 'Proof of payment attached' }}</span>
+    <div v-if="s.payment_ref || s.has_proof || s.settle_method" class="tile -mt-2 mb-5 flex items-center justify-between gap-3 p-3.5 text-[13px]">
+      <span class="min-w-0 text-slate-600">
+        <b v-if="s.settle_method" class="block text-slate-800">{{ { online: 'Paid online via PayMongo', transfer: 'Paid by transfer', cash: 'Paid in cash, in person' }[s.settle_method] }}</b>
+        <span class="break-all">{{ s.payment_ref ? 'Ref no. ' + s.payment_ref : (s.has_proof ? 'Proof of payment attached' : '') }}</span>
+      </span>
       <button v-if="s.has_proof && (s.from.id === me || s.to.id === me)" @click="proof = true" class="font-bold text-brand-700">View proof</button>
     </div>
     <div v-if="proof" class="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-6" @click="proof = false">

@@ -6,6 +6,8 @@ declare(strict_types=1);
 
 // Phone photos are resized to this long edge before upload: plenty for receipt text, far fewer bytes.
 const GEMINI_IMAGE_MAX_EDGE = 2000;
+// Stop starting new attempts after this many seconds, so a scan can't outlive the request's time limit.
+const GEMINI_TIME_BUDGET = 150;
 
 class GeminiException extends RuntimeException
 {
@@ -34,22 +36,33 @@ function gemini_json(array $parts, array $schema): array
         ],
     ]);
 
-    // Overloaded (503), rate-limited (429) or timed-out calls are retried: next the fallback model, then the main model again.
-    $model = (string) config('gemini.model');
-    $attempts = array_merge([$model], (array) config('gemini.fallback_models'), [$model]);
+    // Overloaded (503), rate-limited (429) or timed-out calls are retried down the model list, then the whole list
+    // once more after a short pause (busy spells often clear within seconds), within an overall time budget.
+    $models = array_values(array_unique(array_merge([(string) config('gemini.model')], (array) config('gemini.fallback_models'))));
+    $attempts = array_merge($models, $models);
+    $deadline = time() + GEMINI_TIME_BUDGET;
+    $answered = false; // any attempt got an HTTP reply, so the network itself is fine
     foreach ($attempts as $i => $m) {
         if ($i > 0) {
-            sleep(1);
+            sleep($i === count($models) ? 4 : 1);
         }
         [$status, $raw] = gemini_request($m, $body);
+        $answered = $answered || $status !== 0;
         if ($status === 200 || !in_array($status, [0, 429, 500, 503, 504], true)) {
             break;
         }
-        error_log("[setlo] Gemini $m busy (HTTP $status), " . ($i + 1 < count($attempts) ? 'retrying' : 'giving up'));
+        $last = $i + 1 >= count($attempts) || time() + 5 >= $deadline;
+        error_log("[setlo] Gemini $m busy (HTTP $status), " . ($last ? 'giving up' : 'retrying'));
+        if ($last) {
+            break;
+        }
     }
 
     if ($status === 0) {
-        throw new GeminiException("Couldn't reach the scanning service. Check your connection and try again.");
+        // A timeout after busy replies means an overloaded service, not a dead connection.
+        throw new GeminiException($answered
+            ? 'The scanning service is busy right now. Try again in a minute, or enter the items manually.'
+            : "Couldn't reach the scanning service. Check your connection and try again.");
     }
     $res = json_decode((string) $raw, true);
     if ($status !== 200) {

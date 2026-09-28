@@ -40,14 +40,23 @@ return [
         'api_key' => $env('GEMINI_API_KEY', ''),
         'model'   => $env('GEMINI_MODEL', 'gemini-flash-latest'),
         // Tried when the main model is overloaded (HTTP 503) or rate-limited; lighter and usually less busy.
-        'fallback_models' => ['gemini-flash-lite-latest', 'gemini-3.5-flash-lite'],
-        'timeout' => 25,   // seconds per attempt; a busy model can otherwise hang for over a minute
+        // Busy (503) replies come back in about a second, so a longer list costs little and finds a free model.
+        'fallback_models' => ['gemini-3.6-flash', 'gemini-3.1-flash-lite-preview', 'gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.5-flash-lite'],
+        'timeout' => 40,   // seconds per attempt; a busy model can otherwise hang for over a minute. Scans with plain names + meal sets take longer to answer
     ],
 
     // "Continue with Google": an OAuth 2.0 Web client ID from https://console.cloud.google.com/apis/credentials
     // (add http://localhost and your site's address under "Authorized JavaScript origins"). Empty = button explains it's not set up.
     'google' => [
         'client_id' => $env('GOOGLE_CLIENT_ID', ''),
+    ],
+
+    // "Pay online" on settlements via PayMongo Checkout (demo). Use a TEST secret key (sk_test_...) from
+    // https://dashboard.paymongo.com/developers — live keys would collect real money into your own account.
+    // Empty = only screenshot and cash settling are offered.
+    'paymongo' => [
+        'secret_key' => $env('PAYMONGO_SECRET_KEY', ''),
+        'methods'    => ['gcash', 'paymaya', 'card'],
     ],
 
     'timezone' => 'Asia/Manila',

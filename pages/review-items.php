@@ -40,7 +40,8 @@ require __DIR__ . '/../partials/head.php';
     </div>
 
     <div v-if="flaggedCount" class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12.5px] leading-relaxed text-amber-800">
-      <b class="text-amber-900">Low-confidence read on {{ flaggedCount === 1 ? 'one item' : flaggedCount + ' items' }}.</b> OCR is assistive — confirm or correct the highlighted {{ flaggedCount === 1 ? 'row' : 'rows' }}.
+      <b class="text-amber-900">Check {{ flaggedCount === 1 ? 'one item' : flaggedCount + ' items' }}.</b> Receipt codes were turned into plain names and unclear reads are marked — confirm or correct the highlighted {{ flaggedCount === 1 ? 'row' : 'rows' }}.
+      <button v-if="flaggedCount > 1" @click="resolveAll" class="mt-2 block font-bold text-amber-900 underline underline-offset-2">All look right</button>
     </div>
 
     <section>
@@ -53,8 +54,10 @@ require __DIR__ . '/../partials/head.php';
             <input :value="r.unit_price" @input="r.unit_price = filterMoney($event.target.value); $event.target.value = r.unit_price; touch('price' + r.key)" :data-field="'price' + r.key" :class="{ 'is-invalid': err('price' + r.key) }" class="row-in w-[92px] text-right" inputmode="decimal" aria-label="Unit price" placeholder="0.00" />
           </div>
           <p v-if="rowErr(r)" class="field-error !mt-1">{{ rowErr(r) }}</p>
+          <p v-if="r.details" class="mt-1.5 px-0.5 text-[11.5px] text-slate-500">Meal set · includes {{ r.details }}</p>
+          <p v-if="r.renamedFrom" class="mt-1 px-0.5 text-[11px] text-slate-400">Printed: “{{ r.renamedFrom }}”</p>
           <div class="mt-2 flex items-center justify-between px-0.5 text-[11.5px]">
-            <span v-if="r.needs_review" class="font-bold text-amber-600">⚠ {{ r.suggestion ? 'Looks like “' + r.suggestion + '”?' : 'Please double-check this item' }}</span>
+            <span v-if="r.needs_review" class="font-bold text-amber-600">⚠ {{ r.suggestion ? 'Looks like “' + r.suggestion + '”?' : r.renamedFrom ? 'Renamed from the receipt code — is this right?' : 'Please double-check this item' }}</span>
             <span v-else class="flex items-center gap-1 font-bold text-brand-600">
               <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
               {{ r.fixed ? 'Confirmed' : r.id ? (r.source === 'ocr' ? 'High confidence' : 'Saved') : 'Added manually' }}
@@ -64,9 +67,13 @@ require __DIR__ . '/../partials/head.php';
               <button @click="remove(i)" class="font-bold text-slate-300 hover:text-rose-500" aria-label="Remove item">✕</button>
             </span>
           </div>
-          <div v-if="r.needs_review" class="mt-2.5 grid gap-2" :class="r.suggestion ? 'grid-cols-2' : 'grid-cols-1'">
-            <button v-if="r.suggestion" @click="resolve(r, true)" class="h-9 rounded-xl bg-brand-600 text-[12px] font-bold text-white">Use “{{ r.suggestion }}”</button>
-            <button @click="resolve(r, false)" class="h-9 rounded-xl border border-amber-300 bg-white text-[12px] font-bold text-amber-700">{{ r.suggestion ? 'Keep as typed' : 'Looks right' }}</button>
+          <div v-if="r.needs_review && r.suggestion" class="mt-2.5 grid grid-cols-2 gap-2">
+            <button @click="resolve(r, true)" class="h-9 rounded-xl bg-brand-600 text-[12px] font-bold text-white">Use “{{ r.suggestion }}”</button>
+            <button @click="resolve(r, false)" class="h-9 rounded-xl border border-amber-300 bg-white text-[12px] font-bold text-amber-700">Keep as typed</button>
+          </div>
+          <div v-else-if="r.needs_review" class="mt-2.5 grid gap-2" :class="r.renamedFrom ? 'grid-cols-2' : 'grid-cols-1'">
+            <button @click="resolve(r, false)" class="h-9 rounded-xl bg-brand-600 text-[12px] font-bold text-white">Looks right</button>
+            <button v-if="r.renamedFrom" @click="usePrinted(r)" class="h-9 rounded-xl border border-amber-300 bg-white text-[12px] font-bold text-amber-700">Use printed name</button>
           </div>
         </div>
       </div>
@@ -76,7 +83,7 @@ require __DIR__ . '/../partials/head.php';
     <!-- Receipt totals -->
     <div class="tile space-y-2 p-4 text-[13px]">
       <div class="flex items-center justify-between"><span class="text-slate-500">Subtotal</span><span class="font-semibold text-slate-800">{{ peso(subtotal) }}</span></div>
-      <label class="flex items-center justify-between"><span class="text-slate-500">Tax</span><input :value="tax" @input="tax = filterMoney($event.target.value); $event.target.value = tax; touch('tax')" data-field="tax" :class="{ 'is-invalid': err('tax') }" inputmode="decimal" class="row-in !h-9 w-24 text-right" aria-label="Tax" /></label>
+      <label class="flex items-center justify-between"><span class="text-slate-500">Tax <span v-if="taxIncluded" class="text-[11px] font-semibold text-brand-600">(already in prices — not added)</span></span><input :value="tax" @input="tax = filterMoney($event.target.value); $event.target.value = tax; touch('tax')" data-field="tax" :class="{ 'is-invalid': err('tax') }" inputmode="decimal" class="row-in !h-9 w-24 text-right" aria-label="Tax" /></label>
       <label class="flex items-center justify-between"><span class="text-slate-500">Service charge</span><input :value="svc" @input="svc = filterMoney($event.target.value); $event.target.value = svc; touch('svc')" data-field="svc" :class="{ 'is-invalid': err('svc') }" inputmode="decimal" class="row-in !h-9 w-24 text-right" aria-label="Service charge" /></label>
       <label class="flex items-center justify-between"><span class="text-slate-500">Discount <span class="text-[11px] text-slate-400">(Senior/PWD, promo)</span></span><span class="flex items-center gap-1 text-slate-400">−<input :value="discount" @input="discount = filterMoney($event.target.value); $event.target.value = discount; touch('discount')" data-field="discount" :class="{ 'is-invalid': err('discount') }" inputmode="decimal" class="row-in !h-9 w-24 text-right text-emerald-700" aria-label="Discount" /></span></label>
       <p v-if="money(discount) > 0" class="text-[11.5px] text-slate-400">You'll choose who gets the discount on the next step.</p>
@@ -109,6 +116,10 @@ require __DIR__ . '/../partials/head.php';
 
 <script>
 const money = (v) => Math.round((parseFloat(String(v).replace(/,/g, '')) || 0) * 100) / 100;
+const cents = (v) => Math.round(money(v) * 100);
+/** The printed text, when the scan gave the item a different plain name (mirrors the check in includes/ocr.php). */
+const nameKey = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+const renamedFrom = (it) => (it.printed_name && nameKey(it.printed_name) !== nameKey(it.name) ? it.printed_name : null);
 let keySeq = 0;
 
 Setlo.mount({
@@ -120,7 +131,16 @@ Setlo.mount({
   computed: {
     flaggedCount() { return this.rows.filter((r) => r.needs_review).length; },
     subtotal() { return this.rows.reduce((s, r) => s + this.lineTotal(r), 0); },
-    total() { return Math.round((this.subtotal + money(this.tax) + money(this.svc) - money(this.discount)) * 100) / 100; },
+    /** Mirrors tax_included() in includes/domain.php: tax already in the prices if leaving it out is what matches the printed total. */
+    taxIncluded() {
+      const tax = cents(this.tax);
+      if (tax <= 0 || this.receiptTotal === '' || this.receiptTotal === null) return false;
+      const printed = cents(this.receiptTotal);
+      const withoutTax = cents(this.subtotal) + cents(this.svc) - cents(this.discount);
+      const offWithout = Math.abs(withoutTax - printed);
+      return offWithout <= 100 && offWithout < Math.abs(withoutTax + tax - printed);
+    },
+    total() { return Math.round((this.subtotal + (this.taxIncluded ? 0 : money(this.tax)) + money(this.svc) - money(this.discount)) * 100) / 100; },
     diff() { return Math.round((this.total - money(this.receiptTotal)) * 100) / 100; },
     headline() {
       if (this.bill.ocr_status === 'ok') return 'OCR scan complete';
@@ -137,7 +157,7 @@ Setlo.mount({
       }
       if (fresh && shown !== null && shown !== this.formState()) return; // already typing: keep their work
       this.bill = r.bill;
-      this.rows = r.items.map((it) => ({ ...it, key: ++keySeq, unit_price: it.unit_price.toFixed(2), fixed: false, nudge: false }));
+      this.rows = r.items.map((it) => ({ ...it, key: ++keySeq, unit_price: it.unit_price.toFixed(2), fixed: false, nudge: false, renamedFrom: renamedFrom(it) }));
       this.tax = r.bill.tax.toFixed(2);
       this.svc = r.bill.service_charge.toFixed(2);
       this.discount = r.bill.discount.toFixed(2);
@@ -156,6 +176,14 @@ Setlo.mount({
       if (useSuggestion) r.name = r.suggestion;
       r.needs_review = false;
       r.fixed = true;
+    },
+    usePrinted(r) {
+      r.name = r.renamedFrom;
+      r.renamedFrom = null;
+      this.resolve(r, false);
+    },
+    resolveAll() {
+      for (const r of this.rows) if (r.needs_review) this.resolve(r, false);
     },
     add() {
       this.rows.push({ id: null, key: ++keySeq, name: '', qty: 1, unit_price: '', needs_review: false, source: 'manual', fixed: false, nudge: false });

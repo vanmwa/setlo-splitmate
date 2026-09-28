@@ -19,6 +19,8 @@ if (PHP_SAPI !== 'cli' && !headers_sent()) {
     header('X-Frame-Options: DENY');
     header('Referrer-Policy: strict-origin-when-cross-origin');
     header('Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=()');
+    // Lets the Google sign-in popup report back to this page and close itself.
+    header('Cross-Origin-Opener-Policy: same-origin-allow-popups');
     // Scripts only from this site, jsDelivr (Vue, SweetAlert, QR) and Google sign-in. 'unsafe-eval' is required by
     // Vue's in-page templates; inline scripts are used for per-page setup.
     header("Content-Security-Policy: default-src 'self'; "

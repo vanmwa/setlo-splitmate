@@ -45,7 +45,9 @@ require __DIR__ . '/../partials/head.php';
       </div>
       <div v-if="f.payment_method !== 'Cash'">
         <label class="field-label" for="account">{{ accountLabel }}</label>
-        <input id="account" data-field="payment_account" v-model="f.payment_account" @input="touch('payment_account')" @blur="touch('payment_account')"
+        <input v-if="isGcash" id="account" data-field="payment_account" v-model="f.payment_account" @input="onGcashInput" @blur="touch('payment_account')"
+               class="input-soft" :class="{ 'is-invalid': err('payment_account') }" inputmode="numeric" autocomplete="tel-national" placeholder="e.g. 09171234567" />
+        <input v-else id="account" data-field="payment_account" v-model="f.payment_account" @input="touch('payment_account')" @blur="touch('payment_account')"
                class="input-soft" :class="{ 'is-invalid': err('payment_account') }" maxlength="60" :placeholder="accountPlaceholder" />
         <p v-if="err('payment_account')" class="field-error">{{ err('payment_account') }}</p>
         <p v-else-if="!f.payment_account.trim()" class="mt-1.5 text-[12px] text-amber-600">Add your number so friends know where to send money.</p>
@@ -105,7 +107,11 @@ Setlo.mount({
     pw: { current: '', new: '', confirm: '' }, serverErrors: {},
   }),
   computed: {
-    accountLabel() { return this.f.payment_method === 'Bank Transfer' ? 'Bank & account number' : this.f.payment_method + ' number / name'; },
+    isGcash() { return this.f.payment_method === 'GCash'; },
+    accountLabel() {
+      if (this.isGcash) return 'GCash number';
+      return this.f.payment_method === 'Bank Transfer' ? 'Bank & account number' : this.f.payment_method + ' number / name';
+    },
     accountPlaceholder() { return this.f.payment_method === 'Bank Transfer' ? 'e.g. BPI 1234-5678-90 · Juan Dela Cruz' : 'e.g. 0917 123 4567 · Juan D.'; },
     payUrl() { return this.p ? Setlo.payLink(this.p.pay_code) : ''; },
     qr() { return this.p ? Setlo.qrSvg(this.payUrl) : ''; },
@@ -117,7 +123,7 @@ Setlo.mount({
     validators() {
       return {
         full_name: V.name(this.f.full_name, 'Full name'),
-        payment_account: this.f.payment_method === 'Cash' ? '' : V.account(this.f.payment_account),
+        payment_account: this.f.payment_method === 'Cash' ? '' : (this.isGcash ? V.gcash(this.f.payment_account) : V.account(this.f.payment_account)),
         pw_current: this.serverErrors.current || V.required(this.pw.current, 'Current password'),
         pw_new: this.serverErrors.new || V.password(this.pw.new) || (this.pw.new && this.pw.new === this.pw.current ? 'Choose a password different from your current one.' : ''),
         pw_confirm: V.match(this.pw.confirm, this.pw.new),
@@ -126,6 +132,11 @@ Setlo.mount({
     set(p) {
       this.p = p;
       this.f = { full_name: p.name, payment_method: p.payment_method, payment_account: p.payment_account || '' };
+    },
+    // Digits only, so "0917 123 4567" or a pasted "0917-123-4567" becomes 09171234567.
+    onGcashInput() {
+      this.f.payment_account = this.f.payment_account.replace(/\D/g, '').slice(0, 11);
+      this.touch('payment_account');
     },
     async saveProfile() {
       if (!this.validateAll(['full_name', 'payment_account'])) return;

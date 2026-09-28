@@ -28,9 +28,9 @@ function store_extraction(array $bill, array $parsed, string $status, ?string $r
     q('DELETE FROM receipt_items WHERE bill_id = ?', [$bill['id']]);
     foreach ($parsed['items'] as $pos => $it) {
         q(
-            "INSERT INTO receipt_items (bill_id, position, name, qty, unit_price, source, ocr_name, needs_review, suggestion)
-             VALUES (?, ?, ?, ?, ?, 'ocr', ?, ?, ?)",
-            [$bill['id'], $pos, $it['name'], $it['qty'], $it['unit_price'], $it['name'], (int) $it['needs_review'], $it['suggestion']]
+            "INSERT INTO receipt_items (bill_id, position, name, qty, unit_price, source, ocr_name, printed_name, details, needs_review, suggestion)
+             VALUES (?, ?, ?, ?, ?, 'ocr', ?, ?, ?, ?, ?)",
+            [$bill['id'], $pos, $it['name'], $it['qty'], $it['unit_price'], $it['name'], $it['printed_name'], $it['details'], (int) $it['needs_review'], $it['suggestion']]
         );
     }
     $total = $parsed['total'];
@@ -62,7 +62,7 @@ switch ($action) {
         $dir = upload_dir('receipts');
 
         $error = null;
-        set_time_limit(120); // up to three Gemini attempts when the service is busy
+        set_time_limit(200); // up to four Gemini attempts (40 s each) when the service is busy
         try {
             $parsed = scan_receipt("$dir/$name");
             $status = 'ok';

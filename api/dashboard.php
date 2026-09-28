@@ -42,7 +42,7 @@ json_ok([
     'activity' => array_map(fn ($a) => [
         'event'      => $a['event'],
         'by_admin'   => $a['actor_role'] === 'admin',
-        'actor'      => $a['actor_role'] === 'admin' ? 'The app manager' : ((int) $a['actor_id'] === $me['id'] ? 'You' : first_name((string) $a['actor'])),
+        'actor'      => $a['actor_id'] === null ? 'PayMongo' : ($a['actor_role'] === 'admin' ? 'The app manager' : ((int) $a['actor_id'] === $me['id'] ? 'You' : first_name((string) $a['actor']))),
         'to'         => first_name($a['to_name']),
         'amount'     => (float) $a['amount'],
         'bill'       => $a['bill_name'],

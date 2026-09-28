@@ -39,7 +39,11 @@ switch (input('action', '')) {
         $errors = array_filter([
             'full_name'       => valid_name($name, 'Full name'),
             'payment_method'  => in_array($method, PAYMENT_METHODS, true) ? '' : 'Choose a payment method.',
-            'payment_account' => $method === 'Cash' ? '' : valid_account($account),
+            'payment_account' => match ($method) {
+                'Cash'  => '',
+                'GCash' => valid_gcash($account),
+                default => valid_account($account),
+            },
         ]);
         if ($errors) {
             fail(reset($errors), 422, ['fields' => $errors]);

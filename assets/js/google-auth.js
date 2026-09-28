@@ -24,6 +24,9 @@
       global.google.accounts.id.initialize({
         client_id: opts.clientId,
         ux_mode: 'popup',
+        // Chrome/Edge show their built-in account chooser (FedCM) instead of a popup window, which could
+        // stay open and blank on /gsi/transform. Other browsers still fall back to the popup.
+        use_fedcm_for_button: true,
         callback: async (resp) => {
           try {
             const r = await api.post('auth.php', { action: 'google', credential: resp.credential, remember: opts.remember ? opts.remember() : true });

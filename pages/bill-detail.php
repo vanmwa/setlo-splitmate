@@ -164,7 +164,7 @@ require __DIR__ . '/../partials/head.php';
         </div>
         <p v-if="!d.items.length" class="p-4 text-center text-[13px] text-slate-400">No items yet.</p>
       </div>
-      <a :href="(bill.status === 'closed' ? 'bill-breakdown.php' : 'bill-items.php') + '?bill=' + billId" class="btn btn-outline w-full">Open full itemized view</a>
+      <a :href="(bill.status === 'closed' ? 'bill-breakdown.php' : 'bill-items.php') + '?bill=' + billId" class="btn btn-outline w-full">Open full itemalized view</a>
     </template>
 
     </div>

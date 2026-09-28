@@ -43,6 +43,12 @@ $steps = [
     // The Pay-me QR is generated client-side now (assets/js/ui.js qrSvg/qrPng); the old uploaded-QR
     // column is unused dead weight — drop it if an earlier run of this script added it.
     'ALTER TABLE users DROP COLUMN IF EXISTS payment_qr',
+    // How a settlement was paid (PayMongo online, transfer with proof, or cash in person)
+    "ALTER TABLE settlements ADD COLUMN IF NOT EXISTS settle_method ENUM('online','transfer','cash') NULL AFTER status",
+    'ALTER TABLE settlements ADD COLUMN IF NOT EXISTS paymongo_session VARCHAR(80) NULL AFTER proof_image',
+    // Plain-English item names from receipt codes, and meal-set contents
+    'ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS printed_name VARCHAR(120) NULL AFTER ocr_name',
+    'ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS details VARCHAR(255) NULL AFTER printed_name',
 ];
 foreach ($steps as $sql) {
     db()->exec($sql);

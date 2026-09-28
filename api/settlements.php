@@ -1,7 +1,11 @@
 <?php
-// Two-sided settlement confirmation: sender marks Paid, receiver Confirms or Rejects.
+// Settling a debt, three ways:
+//  - online:   sender pays through PayMongo Checkout; settles itself once PayMongo reports it paid.
+//  - transfer: sender marks Paid (ref no. / screenshot), receiver Confirms or Rejects.
+//  - cash:     receiver taps "Got the cash"; only the receiver can, so nobody settles their own debt.
 require __DIR__ . '/../includes/api.php';
 require __DIR__ . '/../includes/uploads.php';
+require __DIR__ . '/../includes/paymongo.php';
 
 const NUDGE_COOLDOWN_HOURS = 12;
 
@@ -85,12 +89,19 @@ $myName = first_name($me['full_name']);
 // fixed literal fragments — never anything built from request input.
 const TRANSITION_EXTRA_SQL = [
     '',
-    ', paid_at = NOW(), payment_ref = ?, proof_image = ?',
+    ", settle_method = 'transfer', paid_at = NOW(), payment_ref = ?, proof_image = ?",
     ', confirmed_at = NOW()',
     ', disputed_at = NOW(), dispute_reason = ?',
-    ', paid_at = NULL, payment_ref = NULL, proof_image = NULL',
-    ', paid_at = NOW(), confirmed_at = NOW()',
+    ', settle_method = NULL, paymongo_session = NULL, paid_at = NULL, payment_ref = NULL, proof_image = NULL',
+    ", settle_method = 'cash', paid_at = NOW(), confirmed_at = NOW()",
+    ", settle_method = 'online', paid_at = NOW(), confirmed_at = NOW(), payment_ref = ?",
 ];
+
+/** Absolute URL of an app page, for PayMongo to send the payer back to. */
+function absolute_url(string $path): string
+{
+    return (is_https() ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . url($path);
+}
 
 function transition(int $id, string $from, string $to, string $extraSql = '', array $extra = []): void
 {
@@ -114,7 +125,7 @@ switch (input('action', '')) {
         $proof = save_uploaded_image('proof', 'proofs', 'settlement' . $id, false);
         $pdo->beginTransaction();
         try {
-            transition($id, 'pending', 'awaiting', ', paid_at = NOW(), payment_ref = ?, proof_image = ?', [$ref ?: null, $proof]);
+            transition($id, 'pending', 'awaiting', ", settle_method = 'transfer', paid_at = NOW(), payment_ref = ?, proof_image = ?", [$ref ?: null, $proof]);
         } catch (ApiError $e) {
             delete_upload('proofs', $proof);
             throw $e;
@@ -157,23 +168,86 @@ switch (input('action', '')) {
             fail('Only the sender can resend this payment.', 403);
         }
         $pdo->beginTransaction();
-        transition($id, 'disputed', 'pending', ', paid_at = NULL, payment_ref = NULL, proof_image = NULL');
+        transition($id, 'disputed', 'pending', ', settle_method = NULL, paymongo_session = NULL, paid_at = NULL, payment_ref = NULL, proof_image = NULL');
         delete_upload('proofs', $s['proof_image']);
         log_event($id, $me['id'], 'resent', "$myName reviewed the dispute and reopened the payment.");
         notify((int) $s['to_user_id'], 'resent', "$myName reopened the disputed $amount payment for {$s['bill_name']}.", 'my-settlements?tab=owed');
         $pdo->commit();
         break;
 
-    case 'record':
-        // Creator who is also the receiver records a guest's cash payment in one step.
-        if (!$fromGuest || !$isReceiver || !$isSender) {
-            fail('Only the Bill Creator can record a guest’s payment they received.', 403);
+    case 'settle_cash':
+    case 'record': // older name, used when only guests' cash could be recorded
+        // Paid in person. No proof is possible, so only the receiver can settle it.
+        if (!$isReceiver) {
+            fail('Only the person who received the cash can settle this.', 403);
         }
         $pdo->beginTransaction();
-        transition($id, 'pending', 'settled', ', paid_at = NOW(), confirmed_at = NOW()');
-        $guest = first_name($s['from_name']);
-        log_event($id, $me['id'], 'marked_paid', "$myName recorded $amount received from guest $guest.");
-        log_event($id, $me['id'], 'confirmed', "$myName confirmed receiving the payment. Settlement closed.");
+        transition($id, 'pending', 'settled', ", settle_method = 'cash', paid_at = NOW(), confirmed_at = NOW()");
+        $payer = first_name($s['from_name']) . ($fromGuest ? ' (guest)' : '');
+        log_event($id, $me['id'], 'marked_paid', "$myName received $amount in cash from $payer.");
+        log_event($id, $me['id'], 'confirmed', "$myName confirmed receiving the cash. Settlement closed.");
+        notify((int) $s['from_user_id'], 'confirmed', "$myName confirmed receiving your $amount cash for {$s['bill_name']}.", 'settlement-audit?id=' . $id);
+        maybe_close_bill((int) $s['bill_id']);
+        $pdo->commit();
+        break;
+
+    case 'pay_online':
+        // Opens a PayMongo checkout page; the settlement changes only after PayMongo confirms payment (check_online).
+        if (!$isSender) {
+            fail('Only the person who owes can pay this.', 403);
+        }
+        if ($s['status'] !== 'pending') {
+            fail('This settlement isn’t waiting for payment.', 409);
+        }
+        $cents = cents($s['amount']);
+        if ($cents < PAYMONGO_MIN_CENTS) {
+            fail('Online payment needs at least ' . peso_str(PAYMONGO_MIN_CENTS) . '. Pay this one another way.', 422);
+        }
+        try {
+            $checkout = paymongo_create_checkout(
+                $cents,
+                "Setlo: {$s['bill_name']}",
+                first_name($s['from_name']) . ' pays ' . $s['to_name'] . " for {$s['bill_name']}",
+                // No settlement ID in the return URL: the page re-checks every online payment in progress.
+                absolute_url('pages/my-settlements?online=done'),
+                absolute_url('pages/my-settlements?online=cancelled')
+            );
+        } catch (PayMongoException $e) {
+            fail($e->getMessage(), 502);
+        }
+        q("UPDATE settlements SET paymongo_session = ? WHERE id = ? AND status = 'pending'", [$checkout['id'], $id]);
+        json_ok(['checkout_url' => $checkout['url']]);
+
+    case 'check_online':
+        // Asks PayMongo whether the checkout was paid; never trusts the browser's return to the success page.
+        if (!$isSender && !$isReceiver) {
+            fail('You are not part of this settlement.', 403);
+        }
+        if ($s['status'] === 'settled') {
+            break; // already done (e.g. both sides checked at once)
+        }
+        if (!$s['paymongo_session'] || !in_array($s['status'], ['pending', 'awaiting'], true)) {
+            fail('There’s no online payment to check for this settlement.', 409);
+        }
+        try {
+            $paid = paymongo_paid_payment($s['paymongo_session']);
+        } catch (PayMongoException $e) {
+            fail($e->getMessage(), 502);
+        }
+        if (!$paid) {
+            fail('PayMongo hasn’t received this payment yet. If you just paid, wait a moment and check again.', 409);
+        }
+        if ($paid['amount'] !== cents($s['amount'])) {
+            error_log("[setlo] PayMongo amount mismatch on settlement $id: paid {$paid['amount']}, owed " . cents($s['amount']));
+            fail('The amount paid online doesn’t match what’s owed. Contact the app manager.', 409);
+        }
+        $pdo->beginTransaction();
+        transition($id, $s['status'], 'settled', ", settle_method = 'online', paid_at = NOW(), confirmed_at = NOW(), payment_ref = ?", [$paid['id']]);
+        $payer = first_name($s['from_name']);
+        $via = strtoupper($paid['method']) === 'PAYMAYA' ? 'Maya' : ucfirst($paid['method']);
+        log_event($id, (int) $s['from_user_id'], 'marked_paid', "$payer paid $amount online via PayMongo ($via, ref {$paid['id']}).");
+        log_event($id, null, 'confirmed', 'PayMongo confirmed the payment. Settlement closed.');
+        notify((int) $s['to_user_id'], 'confirmed', "$payer paid you $amount online for {$s['bill_name']}. Settled automatically.", 'settlement-audit?id=' . $id);
         maybe_close_bill((int) $s['bill_id']);
         $pdo->commit();
         break;
