@@ -1,6 +1,9 @@
 # Tailwind binary (26 MB) - download again from github.com/tailwindlabs/tailwindcss/releases (tailwindcss-windows-x64.exe)
 tools/tailwindcss.exe
 
+# Local secrets (API keys) - copy config/local.example.php to config/local.php
+config/local.php
+
 # Database backups made by tools\backup.cmd - they hold real user data, keep them out of git
 backups/
 

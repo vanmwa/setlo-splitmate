@@ -186,7 +186,7 @@ Repeat step 5. The tar excludes `uploads/`, so users' photos are kept. Then run 
 
 | Symptom | Fix |
 |---|---|
-| "Receipt scanning isn't set up" banner | `GEMINI_API_KEY` is missing from the vhost, or `php-curl` isn't installed. Run `sudo systemctl reload apache2` after edits. |
+| "Receipt scanning isn't set up" banner | `GEMINI_API_KEY` is missing from the vhost (or from `config/local.php` on a local copy), or `php-curl` isn't installed. Run `sudo systemctl reload apache2` after edits. |
 | "Continue with Google" says it isn't set up | `GOOGLE_CLIENT_ID` is missing from the vhost. |
 | Google popup shows "origin_mismatch", or the button doesn't appear | Add the exact site address under **Authorized JavaScript origins** of the OAuth client. |
 | "Photo is too large" / upload fails at about 2 MB | The PHP ini from step 3 is not loaded. Check with `php --ini` and the Apache `phpinfo()`. |

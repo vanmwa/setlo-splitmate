@@ -1,8 +1,10 @@
 <?php
 // Setlo configuration. Defaults match a stock XAMPP install; on a server, set the environment
 // variables instead (e.g. `SetEnv GEMINI_API_KEY ...` in the Apache vhost) so secrets stay out of the code.
+// On a local XAMPP copy, the same values can go in config/local.php instead (see local.example.php; git ignores it).
 
-$env = fn (string $name, string $default) => getenv($name) !== false ? getenv($name) : $default;
+$local = is_file(__DIR__ . '/local.php') ? (array) require __DIR__ . '/local.php' : [];
+$env = fn (string $name, string $default) => getenv($name) !== false ? getenv($name) : (string) ($local[$name] ?? $default);
 
 // URL path of this project folder under Apache's document root (e.g. "/SplitMate", or "" at the domain root),
 // so renaming or moving the folder doesn't break CSS/JS paths and redirects.
