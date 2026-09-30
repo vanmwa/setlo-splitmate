@@ -83,7 +83,7 @@ require __DIR__ . '/../partials/head.php';
         </button>
       </div>
       <p v-if="!ocrReady" class="mt-4 rounded-2xl bg-amber-50 px-4 py-2.5 text-[12px] text-amber-800">
-        Receipt scanning isn't set up on this server yet (no Gemini API key — add it to config/local.php) — photos are saved, and you'll type the items on the next screen.
+        Receipt scanning isn't set up on this server yet: {{ ocrProblem }}. Photos are still saved, and you'll type the items on the next screen.
       </p>
       <p class="mt-4 text-[12px] text-slate-500">Faded or handwritten? <button @click="manual" class="font-bold text-brand-700">Skip to manual entry</button></p>
       <p class="mt-1.5 text-[12px] text-slate-500">No receipt handy? <button @click="demo" class="font-bold text-brand-700">Load demo receipt</button></p>
@@ -125,7 +125,7 @@ let cameraStream = null; // kept outside Vue's reactivity
 addEventListener('pagehide', () => cameraStream?.getTracks().forEach((t) => t.stop()));
 Setlo.mount({
   data: () => ({
-    billId: <?= $billId ?>, ocrReady: <?= gemini_available() ? 'true' : 'false' ?>, me: <?= (int) $user['id'] ?>,
+    billId: <?= $billId ?>, ocrReady: <?= gemini_available() ? 'true' : 'false' ?>, ocrProblem: <?= json_encode((string) gemini_setup_problem(), JSON_HEX_TAG | JSON_UNESCAPED_UNICODE) ?>, me: <?= (int) $user['id'] ?>,
     bill: null, bills: [], loading: true, busy: false,
     state: 'capture', preview: null, progress: 0, failMessage: '',
   }),

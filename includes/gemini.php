@@ -15,7 +15,26 @@ class GeminiException extends RuntimeException
 
 function gemini_available(): bool
 {
-    return (string) config('gemini.api_key') !== '' && function_exists('curl_init');
+    return gemini_setup_problem() === null;
+}
+
+/** Why scanning is off on this server, in words the person setting it up can act on; null when it's ready. */
+function gemini_setup_problem(): ?string
+{
+    if (!function_exists('curl_init')) {
+        return "PHP's curl extension is off — remove the ; before extension=curl in xampp\\php\\php.ini, then restart Apache";
+    }
+    if ((string) config('gemini.api_key') !== '') {
+        return null;
+    }
+    $dir = realpath(__DIR__ . '/../config');
+    if (!is_file("$dir/local.php")) {
+        $near = array_diff(glob("$dir/local*") ?: [], ["$dir/local.example.php"]);
+        return $near
+            ? 'found ' . basename(reset($near)) . ' — rename it to exactly local.php (check for a hidden .txt ending)'
+            : "no Gemini key — copy config/local.example.php to config/local.php and paste the key in";
+    }
+    return "config/local.php has no GEMINI_API_KEY value — paste the key between the quotes and save";
 }
 
 /**
