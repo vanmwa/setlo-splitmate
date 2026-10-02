@@ -29,6 +29,7 @@ function bill_receipts(int $billId): array
     return array_map(fn ($r, $i) => [
         'id'         => (int) $r['id'],
         'number'     => $i + 1,
+        'title'      => $r['title'],
         'store'      => $r['store_name'],
         'receipt_no' => $r['receipt_no'],
         'date'       => $r['txn_date'],

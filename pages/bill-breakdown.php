@@ -29,13 +29,16 @@ require __DIR__ . '/../partials/head.php';
     <section>
       <p class="section-label">ITEMIZED RECEIPT</p>
       <div class="tile divide-y divide-slate-100">
-        <div v-for="it in d.items" :key="it.id" class="flex items-center justify-between gap-3 p-3.5">
+        <template v-for="g in itemGroups" :key="g.key">
+        <p v-if="g.label" class="bg-slate-50 px-3.5 py-2 text-[11.5px] font-extrabold tracking-[.04em] text-slate-500">{{ g.label }}</p>
+        <div v-for="it in g.items" :key="it.id" class="flex items-center justify-between gap-3 p-3.5">
           <div class="min-w-0">
             <p class="text-sm font-medium">{{ it.name }} ×{{ it.qty }}</p>
             <p class="text-xs text-slate-400">{{ assignedLabel(it) }}</p>
           </div>
           <p class="shrink-0 text-sm font-semibold">{{ peso(it.line_total) }}</p>
         </div>
+        </template>
         <div v-if="d.extras > 0" class="flex items-center justify-between p-3.5">
           <div><p class="text-sm font-medium">Tax + service charge</p><p class="text-xs text-slate-400">Split equally</p></div>
           <p class="text-sm font-semibold">{{ peso(d.extras) }}</p>
@@ -87,7 +90,10 @@ require __DIR__ . '/../partials/head.php';
 <script>
 Setlo.mount({
   data: () => ({ billId: <?= $billId ?>, me: <?= (int) $user['id'] ?>, loading: true, bill: null, d: { members: [], items: [], settlements: [], shares: {}, discount_by: {} } }),
-  computed: { memberMap() { return Object.fromEntries(this.d.members.map((m) => [m.id, m])); } },
+  computed: {
+    /** Items under their receipt's title when the bill has several receipts (see Setlo.groupByReceipt). */
+    itemGroups() { return Setlo.groupByReceipt(this.d.items, this.d.receipts); },
+    memberMap() { return Object.fromEntries(this.d.members.map((m) => [m.id, m])); } },
   async mounted() {
     await Setlo.load(this, 'bills.php', { id: this.billId }, (r) => { this.d = r; this.bill = r.bill; });
   },

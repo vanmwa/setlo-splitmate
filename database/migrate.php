@@ -67,6 +67,8 @@ $steps = [
     'ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS receipt_id INT UNSIGNED NULL AFTER bill_id',
     'ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS dup_note VARCHAR(160) NULL AFTER suggestion',
     'ALTER TABLE receipt_items ADD CONSTRAINT receipt_items_receipt_fk FOREIGN KEY IF NOT EXISTS (receipt_id) REFERENCES receipts(id) ON DELETE CASCADE',
+    // A title per receipt ("Lunch", "Snacks - Cafe") when a bill has several
+    'ALTER TABLE receipts ADD COLUMN IF NOT EXISTS title VARCHAR(60) NULL AFTER position',
     // Payment tally: percentage split, installments with interest, partial payments, paying for someone else
     "ALTER TABLE bills ADD COLUMN IF NOT EXISTS split_mode ENUM('items','percent') NOT NULL DEFAULT 'items' AFTER discount",
     'ALTER TABLE bills ADD COLUMN IF NOT EXISTS interest_rate DECIMAL(5,2) NULL AFTER split_mode',

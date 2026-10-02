@@ -82,6 +82,15 @@ switch ($action) {
         remove_receipt($bill, int_param('receipt_id'));
         json_ok(['receipts' => bill_receipts($bill['id'])]);
 
+    case 'set_title':
+        // A name for one of several receipts, e.g. "Lunch" or "Snacks - Cafe". Empty clears it.
+        $title = trim(preg_replace('/\s+/', ' ', str_input('title', 60, false)));
+        if (preg_match('/[<>]/', $title)) {
+            fail('The title can’t contain < or >.', 422, ['fields' => ['title' => 'No < or > please.']]);
+        }
+        q('UPDATE receipts SET title = ? WHERE id = ? AND bill_id = ?', [$title === '' ? null : $title, int_param('receipt_id'), $bill['id']]);
+        json_ok(['receipts' => bill_receipts($bill['id'])]);
+
     case 'keep_receipt':
         // "Keep both": the user checked a same-purchase warning and it's a real second purchase.
         q('UPDATE receipts SET dup_note = NULL WHERE id = ? AND bill_id = ?', [int_param('receipt_id'), $bill['id']]);

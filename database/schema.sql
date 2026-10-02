@@ -77,6 +77,7 @@ CREATE TABLE receipts (
   id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   bill_id         INT UNSIGNED NOT NULL,
   position        SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  title           VARCHAR(60) NULL,               -- the user's name for it when a bill has several, e.g. "Lunch"
   store_name      VARCHAR(120) NULL,
   receipt_no      VARCHAR(60) NULL,               -- OR / invoice / transaction no., for the duplicate check
   txn_date        VARCHAR(40) NULL,               -- as read, YYYY-MM-DD HH:MM

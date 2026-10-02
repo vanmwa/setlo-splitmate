@@ -142,6 +142,7 @@ require __DIR__ . '/../partials/head.php';
       </div>
       <p v-if="d.settlements.length && bill.interest_rate" class="rounded-xl bg-amber-50 px-3.5 py-2.5 text-[12px] text-amber-800">
         <b>Installments on:</b> each partial payment adds {{ bill.interest_rate }}% of what's left.
+        <span v-if="interestExample" class="mt-0.5 block">{{ interestExample }}</span>
       </p>
       <div v-for="s in d.settlements" :key="s.id" class="tile p-3.5">
         <a :href="'settlement-audit.php?id=' + s.id" class="flex items-center justify-between">
@@ -167,13 +168,16 @@ require __DIR__ . '/../partials/head.php';
     <!-- Items -->
     <template v-if="tab === 'items'">
       <div class="tile divide-y divide-slate-100">
-        <div v-for="it in d.items" :key="it.id" class="flex items-center justify-between gap-3 p-3.5">
+        <template v-for="g in itemGroups" :key="g.key">
+        <p v-if="g.label" class="bg-slate-50 px-3.5 py-2 text-[11.5px] font-extrabold tracking-[.04em] text-slate-500">{{ g.label }}</p>
+        <div v-for="it in g.items" :key="it.id" class="flex items-center justify-between gap-3 p-3.5">
           <div class="min-w-0">
             <p class="text-sm font-medium">{{ it.name }}{{ it.qty > 1 ? ' ×' + it.qty : '' }}</p>
             <p class="text-xs text-slate-400">{{ it.who.length ? it.who.map((id) => memberMap[id].first).join(', ') : bill.split_mode === 'percent' ? 'Split by percentage' : 'Unassigned' }}</p>
           </div>
           <p class="shrink-0 text-sm font-semibold">{{ peso(it.line_total) }}</p>
         </div>
+        </template>
         <p v-if="!d.items.length" class="p-4 text-center text-[13px] text-slate-400">No items yet.</p>
       </div>
       <a :href="(bill.status === 'closed' ? 'bill-breakdown.php' : 'bill-items.php') + '?bill=' + billId" class="btn btn-outline w-full">Open full itemalized view</a>
@@ -221,6 +225,8 @@ Setlo.mount({
     search: '', results: [], timer: null, guestName: '', multiPay: false, payDraft: {}, copied: false, canShare: !!navigator.share,
   }),
   computed: {
+    /** Items under their receipt's title when the bill has several receipts (see Setlo.groupByReceipt). */
+    itemGroups() { return Setlo.groupByReceipt(this.d.items, this.d.receipts); },
     memberMap() { return Object.fromEntries(this.d.members.map((m) => [m.id, m])); },
     creator() { return this.memberMap[this.bill.creator_id] || {}; },
     payer() { return this.memberMap[this.bill.payer_id] || {}; },
@@ -238,6 +244,13 @@ Setlo.mount({
     payDraftTotal() { return Math.round(Object.values(this.payDraft).reduce((s, v) => s + (parseFloat(v) || 0), 0) * 100) / 100; },
     payDraftOk() { return Math.abs(this.payDraftTotal - this.d.total) < 0.005; },
     canEdit() { return this.d.me.is_creator && !this.bill.locked; },
+    /** The rate in pesos, on the first debt still open: "For example, Ben has ₱372.00 left. Pay ₱186.00 … stays to pay." */
+    interestExample() {
+      const s = this.d.settlements.find((x) => x.status !== 'settled' && x.remaining >= 2);
+      if (!s || !this.bill.interest_rate) return '';
+      const who = s.from.id === this.me ? 'you have' : s.from.first + ' has';
+      return `For example, ${who} ${this.peso(s.remaining)} left. ` + this.installmentExample(s.remaining, this.bill.interest_rate);
+    },
     /** Another member's open debt that I could pay for them (guests' debts are the creator's own to pay). */
     canCover() {
       return (s) => s.from.id !== this.me && s.to.id !== this.me && ['pending', 'awaiting'].includes(s.status) && s.remaining > 0

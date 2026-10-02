@@ -41,7 +41,7 @@ require __DIR__ . '/../partials/head.php';
 
     <!-- Same purchase scanned twice -->
     <div v-for="rc in dupReceipts" :key="'dup' + rc.id" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-[12.5px] leading-relaxed text-rose-800" role="alert">
-      <b class="text-rose-900">Receipt {{ rc.number }}{{ rc.store ? ' · ' + rc.store : '' }}:</b> {{ rc.dup_note }}
+      <b class="text-rose-900">{{ rc.number }}. {{ receiptLabel(rc) }}:</b> {{ rc.dup_note }}
       <div class="mt-2 flex gap-4">
         <button @click="removeReceipt(rc)" :disabled="busy" class="font-bold text-rose-900 underline underline-offset-2">Remove Receipt {{ rc.number }}</button>
         <button @click="keepReceipt(rc)" :disabled="busy" class="font-bold text-rose-700">Keep both</button>
@@ -54,7 +54,20 @@ require __DIR__ . '/../partials/head.php';
     </div>
 
     <section v-for="g in groups" :key="g.key">
-      <div v-if="g.receipt" class="mb-2 flex items-center gap-2 px-1">
+      <!-- Several separate receipts: each gets a title ("Lunch", "Snacks - Cafe") that labels its items from here on -->
+      <div v-if="g.receipt && receipts.length > 1" class="mb-2 px-1">
+        <div class="flex items-center gap-2">
+          <span class="shrink-0 text-[13px] font-extrabold text-slate-500">{{ g.receipt.number }}.</span>
+          <input :value="g.receipt.title || ''" @change="saveTitle(g.receipt, $event)" @keydown.enter.prevent="$event.target.blur()" maxlength="60"
+            :placeholder="'Title, e.g. ' + (g.receipt.number === 1 ? 'Lunch' : 'Snacks - Cafe')" class="row-in !h-9 min-w-0 flex-1 font-bold" :aria-label="'Title of receipt ' + g.receipt.number" />
+          <button v-if="g.receipt.photos.length" @click="showPhotos(g.receipt.photos)" class="shrink-0 text-[12px] font-bold text-brand-700">Photo{{ g.receipt.photos.length > 1 ? 's' : '' }}</button>
+          <button @click="removeReceipt(g.receipt)" :disabled="busy" class="shrink-0 text-[12px] font-bold text-slate-400 hover:text-rose-500">Remove</button>
+        </div>
+        <p v-if="g.receipt.store || g.receipt.total !== null" class="mt-1 pl-5 text-[11.5px] text-slate-400">
+          {{ [g.receipt.store, g.receipt.total !== null ? peso(g.receipt.total) : null].filter(Boolean).join(' · ') }}
+        </p>
+      </div>
+      <div v-else-if="g.receipt" class="mb-2 flex items-center gap-2 px-1">
         <p class="min-w-0 flex-1 truncate text-[12px] font-extrabold tracking-[.04em] text-slate-500">
           RECEIPT {{ g.receipt.number }}<span v-if="g.receipt.store" class="font-semibold normal-case tracking-normal"> · {{ g.receipt.store }}</span><span v-if="g.receipt.total !== null" class="font-semibold tracking-normal"> · {{ peso(g.receipt.total) }}</span>
         </p>
@@ -292,7 +305,7 @@ Setlo.mount({
     },
     async removeReceipt(rc) {
       const yes = await Setlo.confirm({
-        title: `Remove Receipt ${rc.number}?`, danger: true, confirmText: 'Remove',
+        title: `Remove ${this.receiptLabel(rc)}?`, danger: true, confirmText: 'Remove',
         text: `Its items, photo and amounts (tax, service charge, total) come off this bill.`,
       });
       if (!yes) return;
@@ -302,7 +315,19 @@ Setlo.mount({
         await this.reload();
         return true;
       });
-      if (done) Setlo.toast(`Receipt ${rc.number} removed`, 'ok');
+      if (done) Setlo.toast(`${this.receiptLabel(rc)} removed`, 'ok');
+    },
+    async saveTitle(rc, e) {
+      const title = e.target.value.trim().replace(/\s+/g, ' ');
+      if (title === (rc.title || '')) return;
+      if (/[<>]/.test(title)) { Setlo.toast('The title can’t contain < or >.', 'warn'); e.target.value = rc.title || ''; return; }
+      try {
+        const r = await api.post('receipts.php', { action: 'set_title', bill_id: this.billId, receipt_id: rc.id, title });
+        this.receipts = r.receipts;
+      } catch (err) {
+        Setlo.toast(err.message);
+        e.target.value = rc.title || '';
+      }
     },
     async keepReceipt(rc) {
       const r = await Setlo.run(this, () => api.post('receipts.php', { action: 'keep_receipt', bill_id: this.billId, receipt_id: rc.id }));

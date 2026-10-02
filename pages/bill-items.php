@@ -51,7 +51,9 @@ require __DIR__ . '/../partials/head.php';
 
     <div v-if="!d.items.length" class="tile p-5 text-center text-[13px] text-slate-400">No items yet — the creator hasn't scanned the receipt.</div>
     <div class="space-y-3">
-      <component :is="canEdit ? 'button' : 'div'" v-for="it in d.items" :key="it.id" @click="canEdit && openSheet(it)"
+      <template v-for="g in itemGroups" :key="g.key">
+      <p v-if="g.label" class="section-label !mb-0 pt-1">{{ g.label }}</p>
+      <component :is="canEdit ? 'button' : 'div'" v-for="it in g.items" :key="it.id" @click="canEdit && openSheet(it)"
         class="flex w-full items-center gap-3 p-4 text-left"
         :class="it.who.length ? 'tile' : 'rounded-[18px] border-[1.5px] border-dashed border-rose-300 bg-rose-50/70'">
         <div class="min-w-0 flex-1">
@@ -65,6 +67,7 @@ require __DIR__ . '/../partials/head.php';
         <div v-else class="flex -space-x-1.5"><avatar v-for="uid in it.who" :key="uid" :user="memberMap[uid]" :size="22" ring></avatar></div>
         <span class="w-16 text-right text-[15px] font-extrabold text-ink">{{ pesoShort(it.line_total) }}</span>
       </component>
+      </template>
     </div>
     <p v-if="d.extras > 0" class="mt-3 text-center text-[12px] text-slate-400">+ {{ peso(d.extras) }} {{ bill && bill.tax_included ? 'service charge' : 'tax & service charge' }}, split equally</p>
     <p v-if="bill.discount > 0" class="mt-1 text-center text-[12px] text-emerald-600">− {{ peso(bill.discount) }} receipt discount<span v-if="d.discount_by[me]"> · yours: {{ peso(d.discount_by[me]) }}</span></p>
@@ -116,6 +119,8 @@ Setlo.mount({
     editing: null, draft: [],
   }),
   computed: {
+    /** Items under their receipt's title when the bill has several receipts (see Setlo.groupByReceipt). */
+    itemGroups() { return Setlo.groupByReceipt(this.d.items, this.d.receipts); },
     memberMap() { return Object.fromEntries(this.d.members.map((m) => [m.id, m])); },
     canEdit() { return this.bill && this.d.me.is_creator && !this.bill.locked; },
     creatorName() { return (this.memberMap[this.bill.creator_id] || {}).name; },

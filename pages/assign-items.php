@@ -65,7 +65,9 @@ require __DIR__ . '/../partials/head.php';
     </div>
 
     <div class="mt-3 space-y-3 px-5">
-      <button v-for="it in items" :key="it.id" @click="toggle(it)" class="tile flex w-full items-center gap-3 p-4 text-left" :class="{ '!border-brand-200': it.who.includes(active), '!border-rose-200 !bg-rose-50/60': !it.who.length }">
+      <template v-for="g in itemGroups" :key="g.key">
+      <p v-if="g.label" class="section-label !mb-0 pt-1">{{ g.label }}</p>
+      <button v-for="it in g.items" :key="it.id" @click="toggle(it)" class="tile flex w-full items-center gap-3 p-4 text-left" :class="{ '!border-brand-200': it.who.includes(active), '!border-rose-200 !bg-rose-50/60': !it.who.length }">
         <div class="min-w-0 flex-1">
           <p class="text-[14px] font-bold text-ink">{{ it.name }}{{ it.qty > 1 ? ' ×' + it.qty : '' }}</p>
           <p v-if="it.details" class="mt-0.5 text-[11.5px] text-slate-500">Includes {{ it.details }}</p>
@@ -83,6 +85,7 @@ require __DIR__ . '/../partials/head.php';
           <svg v-if="it.who.includes(active)" class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
         </span>
       </button>
+      </template>
     </div>
 
     <div v-if="extras > 0" class="mx-5 mt-3 flex items-center justify-between rounded-[18px] border border-brand-100 bg-brand-50/70 px-4 py-3">
@@ -161,6 +164,7 @@ require __DIR__ . '/../partials/head.php';
         <span class="text-slate-400">%</span>
       </div>
       <p v-if="plan.length && interestOn && interestError" class="field-error px-1">{{ interestError }}</p>
+      <p v-else-if="plan.length && interestOn" class="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[12px] leading-snug text-amber-800">{{ interestExample }}</p>
       <div class="mt-5 grid grid-cols-2 gap-3">
         <button @click="confirming = false" class="btn-pill btn-pill-soft">Back</button>
         <button @click="send" class="btn-pill btn-pill-primary" :disabled="busy">Start settling</button>
@@ -192,13 +196,15 @@ Setlo.mount({
   data: () => ({
     billId: <?= $billId ?>, me: <?= (int) $user['id'] ?>,
     loading: true, busy: false, saving: false, confirming: false,
-    bill: null, members: [], items: [], plan: [], paidBy: [], active: <?= (int) $user['id'] ?>, saveTimer: null,
+    bill: null, members: [], items: [], receipts: [], plan: [], paidBy: [], active: <?= (int) $user['id'] ?>, saveTimer: null,
     discountLabel: { none: '', senior: ' · Senior', pwd: ' · PWD' },
     // Percentage split: typed percents per member (strings), saved after a short pause.
     splitMode: 'items', pctDraft: {}, pctTimer: null,
     interestOn: false, interestRate: '5',
   }),
   computed: {
+    /** Items under their receipt's title when the bill has several receipts (see Setlo.groupByReceipt). */
+    itemGroups() { return Setlo.groupByReceipt(this.items, this.receipts); },
     memberMap() { return Object.fromEntries(this.members.map((m) => [m.id, m])); },
     payer() { return this.bill && this.memberMap[this.bill.payer_id]; },
     extras() { return this.bill ? Math.round(((this.bill.tax_included ? 0 : this.bill.tax) + this.bill.service_charge) * 100) / 100 : 0; },
@@ -223,6 +229,13 @@ Setlo.mount({
       if (this.pctOk) return 'Adds up to 100% ✓';
       const gap = Math.round(Math.abs(100 - this.pctTotal) * 100) / 100;
       return `Adds up to ${this.pctTotal}% — make it 100% (${this.pctTotal < 100 ? gap + '% left' : gap + '% too much'})`;
+    },
+    /** The rate in pesos, on the biggest debt in the plan: "For example, Ben owes ₱372.00. Pay ₱186.00 … ₱195.30 stays to pay." */
+    interestExample() {
+      if (!this.plan.length) return '';
+      const t = this.plan.reduce((a, b) => (b.amount > a.amount ? b : a));
+      const who = t.from === this.me ? 'you owe' : this.nameOf(t.from) + ' owes';
+      return `For example, ${who} ${this.peso(t.amount)}. ` + this.installmentExample(t.amount, parseFloat(this.interestRate));
     },
     interestError() {
       const r = parseFloat(this.interestRate);
@@ -269,6 +282,7 @@ Setlo.mount({
       this.fillPercents();
       this.paidBy = Object.keys(r.payments.paid).map(Number);
       this.items = r.items;
+      this.receipts = r.receipts || [];
       if (!fresh) shown = state();
     });
     window.addEventListener('beforeunload', this.flush);
