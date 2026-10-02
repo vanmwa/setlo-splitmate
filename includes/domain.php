@@ -88,6 +88,7 @@ function bill_items(int $billId): array
     }
     return array_map(fn ($i) => [
         'id'            => (int) $i['id'],
+        'receipt_id'    => $i['receipt_id'] === null ? null : (int) $i['receipt_id'],
         'name'          => $i['name'],
         'qty'           => (int) $i['qty'],
         'unit_price'    => (float) $i['unit_price'],
@@ -98,6 +99,7 @@ function bill_items(int $billId): array
         'details'       => $i['details'],
         'needs_review'  => (bool) $i['needs_review'],
         'suggestion'    => $i['suggestion'],
+        'dup_note'      => $i['dup_note'],
         'was_corrected' => (bool) $i['was_corrected'],
         'who'           => $assign[(int) $i['id']] ?? [],
     ], $items);

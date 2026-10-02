@@ -189,10 +189,12 @@ Shipped one part at a time. After deploying each part, run `migrate.php` (step 7
 OpenCV.js (~9 MB) loads from `cdn.jsdelivr.net` only when the camera opens; the service worker caches it after the first use. If it can't load (offline), the light and blur checks still work, just without the outline.
 
 ### Part 2 — Multiple receipts
-- [ ] Two or more receipts in one photo are read as separate receipts
-- [ ] After the first scan, add more receipts from Upload (several files at once) or Capture (several shots in a row)
-- [ ] A long receipt can be shot in parts and read as one receipt
-- [ ] Flags: same or near-identical photo (checked before the scan, so no Gemini call is wasted), same transaction (receipt no., or store + total + date), repeated items across receipts
+- [x] Two or more receipts in one photo are read as separate receipts
+- [x] After the first scan, add more receipts from Upload (several files at once) or Capture (several shots in a row)
+- [x] A long receipt can be shot in parts and read as one receipt
+- [x] Flags: same or near-identical photo (checked before the scan, so no Gemini call is wasted), same transaction (receipt no., or store + total + date), repeated items across receipts
+
+Spotting a *near*-identical photo (re-saved, resized) needs PHP's GD extension — `php-gd` from step 2 on the server; on XAMPP, remove the `;` before `extension=gd` in `php\php.ini` and restart Apache. Without it, only exact copies of a photo are caught.
 
 ### Part 3 — Payment tally
 - [ ] Partial payments, each by its own method (e.g. half online, half cash)

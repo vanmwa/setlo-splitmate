@@ -126,7 +126,8 @@ Role is never fixed by who created the Bill — it's determined by who paid the 
 - `users`
 - `bills`
 - `bill_members`
-- `receipt_items` (extracted/corrected item name, price, quantity)
+- `receipts` (each receipt scanned into a bill: store, receipt no., date, totals, duplicate warning) and `receipt_photos` (its photo, or several for a long receipt, with hashes for the duplicate-photo check)
+- `receipt_items` (extracted/corrected item name, price, quantity; which receipt it came from)
 - `item_assignments` (which member(s) each item is assigned to)
 - `settlements` (sender, receiver, amount, status, timestamps for paid/confirmed)
 - `notifications`

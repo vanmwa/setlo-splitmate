@@ -4,9 +4,10 @@ require __DIR__ . '/../includes/gemini.php';
 $user = require_login();
 $title = 'Scan Receipt';
 $nav = 'scan';
-$back = 'my-bills.php';
 $step = 1;
 $billId = (int) ($_GET['bill'] ?? 0);
+$adding = $billId && !empty($_GET['add']); // "+ Add another receipt" from the Review screen
+$back = $adding ? 'review-items.php?bill=' . $billId : 'my-bills.php';
 $headExtra = ['assets/js/docscan.js'];
 require __DIR__ . '/../partials/head.php';
 ?>
@@ -16,7 +17,7 @@ require __DIR__ . '/../partials/head.php';
     <div class="flex items-center gap-3">
       <?php require __DIR__ . '/../partials/back.php'; ?>
       <div class="min-w-0">
-        <h1 class="text-[19px] font-extrabold leading-tight tracking-tight">Scan Receipt</h1>
+        <h1 class="text-[19px] font-extrabold leading-tight tracking-tight">{{ receiptCount && addMode ? 'Add a Receipt' : 'Scan Receipt' }}</h1>
         <p class="truncate text-[12px] font-medium text-brand-50/90">{{ bill ? bill.name : 'Choose a bill' }}</p>
       </div>
     </div>
@@ -78,11 +79,15 @@ require __DIR__ . '/../partials/head.php';
     </div>
 
     <input ref="camera" type="file" accept="image/*" capture="environment" class="hidden" @change="picked" />
-    <input ref="gallery" type="file" accept="image/jpeg,image/png,image/webp" class="hidden" @change="picked" />
+    <input ref="gallery" type="file" accept="image/jpeg,image/png,image/webp" multiple class="hidden" @change="picked" />
 
     <div v-if="state === 'capture'" class="text-center">
-      <p class="mt-5 text-[16px] font-extrabold text-ink">Position the receipt in frame</p>
-      <p class="mt-1 text-[13px] leading-snug text-slate-500">Item names, prices, tax and total should be clearly visible.</p>
+      <div v-if="receiptCount" class="mt-4 grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white p-1 text-[12.5px] font-bold" role="radiogroup" aria-label="What to do with new photos">
+        <button @click="addMode = true" role="radio" :aria-checked="addMode" class="rounded-xl py-2" :class="addMode ? 'bg-brand-600 text-white' : 'text-slate-500'">Add to the {{ receiptCount }} receipt{{ receiptCount > 1 ? 's' : '' }}</button>
+        <button @click="addMode = false" role="radio" :aria-checked="!addMode" class="rounded-xl py-2" :class="!addMode ? 'bg-rose-600 text-white' : 'text-slate-500'">Replace {{ receiptCount > 1 ? 'them' : 'it' }}</button>
+      </div>
+      <p class="mt-5 text-[16px] font-extrabold text-ink">{{ receiptCount && addMode ? 'Add another receipt' : 'Position the receipt in frame' }}</p>
+      <p class="mt-1 text-[13px] leading-snug text-slate-500">Item names, prices, tax and total should be clearly visible. Several receipts in one photo are read separately; a long receipt can be taken in parts.</p>
       <div class="mt-5 grid grid-cols-2 gap-3">
         <button @click="$refs.gallery.click()" class="btn-pill btn-pill-outline">
           <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.5"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 15l-5-5-8 9"/></svg>
@@ -112,8 +117,31 @@ require __DIR__ . '/../partials/head.php';
       </div>
     </div>
 
+    <div v-else-if="state === 'queue'" class="text-center">
+      <p class="mt-5 text-[16px] font-extrabold text-ink">{{ queue.length === 1 ? '1 photo ready' : queue.length + ' photos ready' }}</p>
+      <p class="mt-1 text-[13px] leading-snug text-slate-500">Add more receipts, or the next part of a long one — or scan now.</p>
+      <div class="mt-4 flex flex-wrap justify-center gap-2.5">
+        <div v-for="(q, i) in queue" :key="q.key" class="relative">
+          <img :src="q.url" :alt="'Photo ' + (i + 1)" class="h-20 w-16 rounded-lg object-cover shadow" />
+          <span class="absolute bottom-1 left-1 rounded bg-ink/70 px-1 text-[10px] font-bold text-white">{{ i + 1 }}</span>
+          <button @click="unqueue(i)" class="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-slate-500 shadow" :aria-label="'Remove photo ' + (i + 1)">✕</button>
+        </div>
+      </div>
+      <label v-if="queue.length > 1" class="mt-4 flex items-start gap-2.5 rounded-2xl bg-slate-50 px-3.5 py-3 text-left text-[12.5px] leading-snug text-slate-600">
+        <input type="checkbox" v-model="partsOfOne" class="mt-0.5 h-4 w-4 shrink-0 accent-brand-600" />
+        <span><b class="text-ink">These are parts of one long receipt</b><br />{{ partsOfOne ? 'Read together, top to bottom, as one receipt — keep them in order.' : 'Off: each photo is read as its own receipt.' }}</span>
+      </label>
+      <div class="mt-4 grid grid-cols-2 gap-3">
+        <button @click="$refs.gallery.click()" :disabled="queueFull" class="btn-pill btn-pill-outline">+ Upload</button>
+        <button @click="openCamera" :disabled="queueFull" class="btn-pill btn-pill-outline">+ Take photo</button>
+      </div>
+      <p v-if="queueFull" class="mt-2 text-[12px] text-slate-400">Up to {{ maxPhotos }} photos at a time.</p>
+      <button @click="scanAll" class="btn-pill btn-pill-primary mt-3 w-full">{{ queue.length === 1 || partsOfOne ? 'Scan receipt' : 'Scan ' + queue.length + ' photos' }}</button>
+      <button @click="clearQueue" class="mt-3 text-[12px] font-bold text-slate-400">Start over</button>
+    </div>
+
     <div v-else-if="state === 'scanning'" class="text-center">
-      <p class="mt-5 text-[16px] font-extrabold text-ink">Reading your receipt…</p>
+      <p class="mt-5 text-[16px] font-extrabold text-ink">{{ step.n > 1 ? 'Reading photo ' + step.i + ' of ' + step.n + '…' : 'Reading your receipt…' }}</p>
       <p class="mt-1 text-[13px] text-slate-500">Extracting item names and prices</p>
       <div class="progress mx-auto mt-5 w-44 !h-1.5"><span :style="{ width: progress + '%', transitionDuration: '6s', transitionTimingFunction: 'ease-out' }"></span></div>
     </div>
@@ -122,7 +150,7 @@ require __DIR__ . '/../partials/head.php';
       <p class="mt-5 text-[16px] font-extrabold text-ink">Couldn't read this receipt</p>
       <p class="mt-1 text-[13px] text-slate-500">{{ failMessage }}</p>
       <div class="mt-5 grid grid-cols-2 gap-3">
-        <button @click="reset" class="btn-pill btn-pill-outline">Try another photo</button>
+        <button @click="clearQueue" class="btn-pill btn-pill-outline">Try another photo</button>
         <a :href="'review-items.php?bill=' + billId" class="btn-pill btn-pill-primary">Enter manually</a>
       </div>
     </div>
@@ -140,6 +168,10 @@ Setlo.mount({
     billId: <?= $billId ?>, ocrReady: <?= gemini_available() ? 'true' : 'false' ?>, ocrProblem: <?= json_encode((string) gemini_setup_problem(), JSON_HEX_TAG | JSON_UNESCAPED_UNICODE) ?>, me: <?= (int) $user['id'] ?>,
     bill: null, bills: [], loading: true, busy: false,
     state: 'capture', preview: null, progress: 0, failMessage: '',
+    // Several receipts per bill: add to the bill's receipts, or replace them (the first scan).
+    receiptCount: 0, addMode: <?= $adding ? 'true' : 'false' ?>,
+    // Photos waiting to be scanned ({ key, file, url }), and whether they are sections of one long receipt.
+    queue: [], partsOfOne: false, maxPhotos: 6, step: { i: 1, n: 1 },
     // Live camera guidance. outline: 'loading' | 'on' | 'off' (OpenCV couldn't load: light and blur checks only).
     guide: { outline: 'loading', found: false, light: null, sharp: true, stable: false },
     lightLabel: { ok: '☀ Good light', dark: '☾ Too dark', glare: '✺ Glare' },
@@ -156,6 +188,7 @@ Setlo.mount({
       return { title: 'Ready — tap Capture', text: g.outline === 'on' ? 'The photo will be cropped to the green outline.' : 'Item names, prices, tax and total should be clearly visible.', ready: true };
     },
     pickable() { return this.bills.filter((b) => b.status === 'draft' || b.status === 'active'); },
+    queueFull() { return this.queue.length >= this.maxPhotos; },
   },
   async mounted() {
     if (!this.billId) {
@@ -170,18 +203,45 @@ Setlo.mount({
         return;
       }
       this.bill = r.bill;
+      this.receiptCount = (r.receipts || []).length;
+      // Adding is the safe default once the bill has receipts: replacing drops them and their items.
+      if (this.receiptCount) this.addMode = true;
     });
   },
   methods: {
     async picked(e) {
-      const file = e.target.files[0];
+      const files = [...e.target.files];
       e.target.value = '';
-      if (!file) return;
-      const q = await Setlo.docscan.checkFile(file);
-      if (q && q.light === 'dark') Setlo.toast('This photo looks dark — if items come out wrong, retake it in better light.', 'warn');
-      else if (q && q.light === 'glare') Setlo.toast('This photo has glare — if items come out wrong, retake it at an angle.', 'warn');
-      else if (q && !q.sharp) Setlo.toast('This photo looks blurry — if items come out wrong, retake it.', 'warn');
-      this.upload(file);
+      const room = this.maxPhotos - this.queue.length;
+      if (files.length > room) Setlo.toast(`Up to ${this.maxPhotos} photos at a time — added the first ${room}.`, 'warn');
+      let warned = false;
+      for (const file of files.slice(0, room)) {
+        if (file.size > 8 * 1024 * 1024) { Setlo.toast('A photo is too large (max 8 MB) — skipped it.'); continue; }
+        const q = warned ? null : await Setlo.docscan.checkFile(file);
+        const n = files.length > 1 ? 'One photo' : 'This photo';
+        if (q && q.light === 'dark') Setlo.toast(n + ' looks dark — if items come out wrong, retake it in better light.', 'warn');
+        else if (q && q.light === 'glare') Setlo.toast(n + ' has glare — if items come out wrong, retake it at an angle.', 'warn');
+        else if (q && !q.sharp) Setlo.toast(n + ' looks blurry — if items come out wrong, retake it.', 'warn');
+        warned = warned || (q && (q.light !== 'ok' || !q.sharp));
+        this.enqueue(file);
+      }
+    },
+    enqueue(file) {
+      this.queue.push({ key: Math.random().toString(36).slice(2), file, url: URL.createObjectURL(file) });
+      this.preview = this.queue[this.queue.length - 1].url;
+      this.state = 'queue';
+    },
+    unqueue(i) {
+      URL.revokeObjectURL(this.queue[i].url);
+      this.queue.splice(i, 1);
+      if (!this.queue.length) this.reset();
+      else this.preview = this.queue[this.queue.length - 1].url;
+    },
+    clearQueue() {
+      this.queue.forEach((q) => URL.revokeObjectURL(q.url));
+      this.queue = [];
+      this.partsOfOne = false;
+      this.reset();
     },
     // Live camera in the viewfinder; the capture="environment" input is the fallback (it only opens a camera on phones).
     async openCamera() {
@@ -226,7 +286,11 @@ Setlo.mount({
       cameraStream = null;
       if (this.$refs.video) this.$refs.video.srcObject = null;
     },
-    cancelCamera() { this.stopCamera(); this.reset(); },
+    cancelCamera() {
+      this.stopCamera();
+      if (this.queue.length) this.state = 'queue';
+      else this.reset();
+    },
     async capture() {
       const v = this.$refs.video;
       if (!v.videoWidth) return; // camera not showing a picture yet
@@ -249,33 +313,72 @@ Setlo.mount({
         canvas.getContext('2d').drawImage(v, 0, 0);
       }
       this.stopCamera();
-      canvas.toBlob((blob) => this.upload(new File([blob], 'receipt.jpg', { type: 'image/jpeg' })), 'image/jpeg', 0.9);
+      canvas.toBlob((blob) => this.enqueue(new File([blob], 'receipt-' + (this.queue.length + 1) + '.jpg', { type: 'image/jpeg' })), 'image/jpeg', 0.9);
     },
-    async upload(file) {
-      if (file.size > 8 * 1024 * 1024) { Setlo.toast('Photo is too large (max 8 MB).'); return; }
-      this.preview = URL.createObjectURL(file);
-      this.state = 'scanning';
-      this.progress = 0;
-      requestAnimationFrame(() => { this.progress = 90; });
-
+    /** One upload request: a single photo, or all sections of one long receipt. */
+    sendPhotos(files, mode, force) {
       const fd = new FormData();
       fd.append('action', 'upload');
       fd.append('bill_id', this.billId);
-      fd.append('image', file);
-      try {
-        const r = await api.post('receipts.php', fd);
-        this.progress = 100;
-        if (r.ocr === 'ok' && r.found > 0) {
-          setTimeout(() => { location.href = r.redirect; }, 300);
-        } else {
-          this.state = 'failed';
-          this.failMessage = !r.available
-            ? 'Receipt scanning is not set up on this server. Your photo is saved — enter the items manually.'
-            : r.error || "No line items were detected. Try better lighting, or enter the items manually.";
+      fd.append('mode', mode);
+      if (force) fd.append('force', '1');
+      files.forEach((f) => fd.append('images[]', f));
+      return api.post('receipts.php', fd);
+    },
+    // Separate photos are sent one at a time (each scan can take a while); a long receipt's parts go together.
+    async scanAll() {
+      if (!this.addMode && this.receiptCount) {
+        const ok = await Setlo.confirm({
+          title: `Replace the ${this.receiptCount > 1 ? this.receiptCount + ' receipts' : 'receipt'}?`, danger: true, confirmText: 'Replace',
+          text: 'The bill’s scanned receipts and their items are removed and replaced by these photos.',
+        });
+        if (!ok) return;
+      }
+      const batches = this.partsOfOne ? [this.queue] : this.queue.map((q) => [q]);
+      let read = 0, stored = 0;
+      const problems = [];
+      this.state = 'scanning';
+      for (let i = 0; i < batches.length; i++) {
+        this.step = { i: i + 1, n: batches.length };
+        this.preview = batches[i][0].url;
+        this.progress = 0;
+        requestAnimationFrame(() => requestAnimationFrame(() => { this.progress = 90; }));
+        // Only the very first request may replace; everything after it adds to what it stored.
+        const mode = !this.addMode && i === 0 ? 'replace' : 'add';
+        const files = batches[i].map((q) => q.file);
+        let r;
+        try {
+          r = await this.sendPhotos(files, mode, false);
+          if (r.duplicate_photo) {
+            const d = r.duplicate_photo;
+            const yes = await Setlo.confirm({
+              title: 'Same photo again?', confirmText: 'Add anyway', cancelText: 'Skip it',
+              text: d.receipt
+                ? `This looks like the photo of Receipt ${d.receipt}${d.store ? ' (' + d.store + ')' : ''}, already on this bill.`
+                : 'Two of these photos look the same.',
+            });
+            if (!yes) continue;
+            r = await this.sendPhotos(files, mode, true);
+          }
+        } catch (err) {
+          Setlo.toast(err.message);
+          if (!stored) { this.state = 'queue'; return; }
+          break; // keep what was already stored and show it on Review
         }
-      } catch (err) {
-        Setlo.toast(err.message);
-        this.reset();
+        stored++;
+        if (r.ocr === 'ok' && r.found > 0) read++;
+        else problems.push(!r.available ? 'Receipt scanning is not set up on this server. Your photo is saved — enter the items manually.'
+          : r.error || 'No line items were detected. Try better lighting, or enter the items manually.');
+      }
+      this.progress = 100;
+      if (read || (stored && this.receiptCount)) {
+        this.queue.forEach((q) => URL.revokeObjectURL(q.url));
+        setTimeout(() => { location.href = 'review-items?bill=' + this.billId; }, 300);
+      } else if (stored) {
+        this.state = 'failed';
+        this.failMessage = problems[0];
+      } else {
+        this.state = 'queue'; // every photo skipped as a duplicate
       }
     },
     reset() { this.state = 'capture'; this.preview = null; },
@@ -286,7 +389,7 @@ Setlo.mount({
     async demo() {
       this.state = 'scanning';
       requestAnimationFrame(() => { this.progress = 100; });
-      const r = await Setlo.run(this, () => api.post('receipts.php', { action: 'demo', bill_id: this.billId }));
+      const r = await Setlo.run(this, () => api.post('receipts.php', { action: 'demo', bill_id: this.billId, mode: this.addMode ? 'add' : 'replace' }));
       if (r) setTimeout(() => { location.href = r.redirect; }, 1200);
       else this.reset();
     },

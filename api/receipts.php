@@ -1,14 +1,24 @@
 <?php
-// Receipt upload + OCR extraction, and access-controlled image viewing.
+// Receipts on a bill: upload + OCR (one or more photos, one or more receipts each), duplicate checks, removal,
+// and access-controlled photo viewing.
 require __DIR__ . '/../includes/api.php';
 require __DIR__ . '/../includes/ocr.php';
-require __DIR__ . '/../includes/uploads.php';
+require __DIR__ . '/../includes/receipts.php';
+
+const MAX_PHOTOS = 6; // sections of one long receipt, sent to the scanner together
 
 $me = api_user();
 
 if (method() === 'GET') {
+    // ?photo_id= one photo of a receipt; without it, the bill's first photo.
     $bill = bill_for(int_param('bill_id'), $me);
-    serve_upload('receipts', $bill['receipt_image']);
+    $photoId = (int) ($_GET['photo_id'] ?? 0);
+    $image = q(
+        'SELECT p.image FROM receipt_photos p JOIN receipts r ON r.id = p.receipt_id WHERE r.bill_id = ?' . ($photoId ? ' AND p.id = ?' : '')
+        . ' ORDER BY r.position, r.id, p.position LIMIT 1',
+        $photoId ? [$bill['id'], $photoId] : [$bill['id']]
+    )->fetchColumn();
+    serve_upload('receipts', $image ?: $bill['receipt_image']);
 }
 
 if (method() !== 'POST') {
@@ -19,33 +29,8 @@ $bill = bill_for(int_param('bill_id'), $me);
 require_creator($bill, $me);
 require_editable($bill);
 $action = input('action', 'upload');
-
-/** Replace the bill's items with freshly extracted ones. */
-function store_extraction(array $bill, array $parsed, string $status, ?string $raw, ?string $image): void
-{
-    $pdo = db();
-    $pdo->beginTransaction();
-    q('DELETE FROM receipt_items WHERE bill_id = ?', [$bill['id']]);
-    foreach ($parsed['items'] as $pos => $it) {
-        q(
-            "INSERT INTO receipt_items (bill_id, position, name, qty, unit_price, source, ocr_name, printed_name, details, needs_review, suggestion)
-             VALUES (?, ?, ?, ?, ?, 'ocr', ?, ?, ?, ?, ?)",
-            [$bill['id'], $pos, $it['name'], $it['qty'], $it['unit_price'], $it['name'], $it['printed_name'], $it['details'], (int) $it['needs_review'], $it['suggestion']]
-        );
-    }
-    $total = $parsed['total'];
-    if ($total === null && $parsed['subtotal'] !== null) {
-        $total = $parsed['subtotal'] + $parsed['tax'] + $parsed['service_charge'] - $parsed['discount'];
-    }
-    q(
-        "UPDATE bills SET status = 'active', tax = ?, service_charge = ?, discount = ?, receipt_total = ?, ocr_raw = ?, ocr_status = ?,
-         receipt_image = COALESCE(?, receipt_image) WHERE id = ?",
-        [$parsed['tax'], $parsed['service_charge'], $parsed['discount'], $total, $raw, $status, $image, $bill['id']]
-    );
-    $pdo->commit();
-}
-
-$empty = ['items' => [], 'subtotal' => null, 'tax' => 0.0, 'service_charge' => 0.0, 'discount' => 0.0, 'total' => null];
+// add: put the new receipt next to the bill's others · replace: start the bill's receipts over (the first scan)
+$replace = input('mode', 'replace') !== 'add';
 
 switch ($action) {
     case 'manual':
@@ -53,31 +38,54 @@ switch ($action) {
         json_ok(['redirect' => 'review-items?bill=' . $bill['id']]);
 
     case 'demo':
-        store_extraction($bill, DEMO_RECEIPT, 'ok', DEMO_RECEIPT['raw_text'], null);
-        json_ok(['ocr' => 'ok', 'redirect' => 'review-items?bill=' . $bill['id']]);
+        $stored = store_receipts($bill, [DEMO_RECEIPT], 'ok', [], $replace);
+        json_ok(['ocr' => 'ok', 'duplicates' => $stored['duplicates'], 'redirect' => 'review-items?bill=' . $bill['id']]);
 
     case 'upload':
-        $name = save_uploaded_image('image', 'receipts', 'bill' . $bill['id']);
-        delete_upload('receipts', $bill['receipt_image']);
-        $dir = upload_dir('receipts');
+        // images[]: one photo, or several sections of one long receipt. "image" is the older single-photo field.
+        $names = save_uploaded_images('images', 'receipts', 'bill' . $bill['id'], MAX_PHOTOS)
+            ?: [save_uploaded_image('image', 'receipts', 'bill' . $bill['id'])];
+        $photos = hash_photos($names);
+
+        // Checked before scanning, so a photo sent twice doesn't use up a scan. force=1: the user said add it anyway.
+        if (!in_array(input('force'), ['1', 1, true], true)) {
+            $dup = find_duplicate_photo($replace ? 0 : $bill['id'], $photos);
+            if ($dup) {
+                foreach ($names as $n) {
+                    delete_upload('receipts', $n);
+                }
+                json_ok(['duplicate_photo' => $dup]);
+            }
+        }
 
         $error = null;
         set_time_limit(200); // up to four Gemini attempts (40 s each) when the service is busy
         try {
-            $parsed = scan_receipt("$dir/$name");
+            $receipts = scan_receipt(array_map(fn ($n) => upload_dir('receipts') . "/$n", $names), count($names) > 1);
             $status = 'ok';
         } catch (GeminiException $e) {
-            [$parsed, $status, $error] = [$empty, 'failed', $e->getMessage()];
+            [$receipts, $status, $error] = [[], 'failed', $e->getMessage()];
         }
-        store_extraction($bill, $parsed, $status, ($parsed['raw_text'] ?? '') ?: null, $name);
+        $stored = store_receipts($bill, $receipts, $status, $photos, $replace);
 
         json_ok([
-            'ocr'       => $status,
-            'available' => gemini_available(),
-            'found'     => count($parsed['items']),
-            'error'     => $error,
-            'redirect'  => 'review-items?bill=' . $bill['id'],
+            'ocr'            => $status,
+            'available'      => gemini_available(),
+            'found'          => array_sum(array_map(fn ($r) => count($r['items']), $receipts)),
+            'receipts_found' => count($receipts),
+            'duplicates'     => $stored['duplicates'],
+            'error'          => $error,
+            'redirect'       => 'review-items?bill=' . $bill['id'],
         ]);
+
+    case 'remove_receipt':
+        remove_receipt($bill, int_param('receipt_id'));
+        json_ok(['receipts' => bill_receipts($bill['id'])]);
+
+    case 'keep_receipt':
+        // "Keep both": the user checked a same-purchase warning and it's a real second purchase.
+        q('UPDATE receipts SET dup_note = NULL WHERE id = ? AND bill_id = ?', [int_param('receipt_id'), $bill['id']]);
+        json_ok(['receipts' => bill_receipts($bill['id'])]);
 }
 
 fail('Unknown action.', 404);

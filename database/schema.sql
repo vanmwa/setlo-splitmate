@@ -5,7 +5,7 @@ CREATE DATABASE IF NOT EXISTS setlo CHARACTER SET utf8mb4 COLLATE utf8mb4_unicod
 USE setlo;
 
 SET FOREIGN_KEY_CHECKS = 0;
-DROP TABLE IF EXISTS login_attempts, notifications, settlement_events, settlements, item_assignments, receipt_items, bill_payments, bill_members, bills, users;
+DROP TABLE IF EXISTS login_attempts, notifications, settlement_events, settlements, item_assignments, receipt_items, receipt_photos, receipts, bill_payments, bill_members, bills, users;
 SET FOREIGN_KEY_CHECKS = 1;
 
 CREATE TABLE users (
@@ -36,8 +36,8 @@ CREATE TABLE bills (
   service_charge  DECIMAL(10,2) NOT NULL DEFAULT 0,
   discount        DECIMAL(10,2) NOT NULL DEFAULT 0,  -- discount printed on the receipt (Senior/PWD, promo), deducted from the total
   receipt_total   DECIMAL(10,2) NULL,             -- total printed on the receipt, for the match check
-  receipt_image   VARCHAR(255) NULL,
-  ocr_raw         MEDIUMTEXT NULL,
+  receipt_image   VARCHAR(255) NULL,              -- legacy single photo; photos now live in receipt_photos
+  ocr_raw         MEDIUMTEXT NULL,                -- text of the first receipt (its first line names the place in Stats)
   ocr_status      ENUM('none','ok','failed','skipped') NOT NULL DEFAULT 'none',
   invite_code     CHAR(12) NULL UNIQUE,           -- join-by-link code; NULL when the link is off
   created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -68,10 +68,45 @@ CREATE TABLE bill_payments (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+-- Receipts scanned into a bill. A bill can have several, and one photo can hold several receipts.
+-- Their tax / service charge / discount / total were added into the bill's when scanned (and are taken out on removal).
+CREATE TABLE receipts (
+  id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  bill_id         INT UNSIGNED NOT NULL,
+  position        SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  store_name      VARCHAR(120) NULL,
+  receipt_no      VARCHAR(60) NULL,               -- OR / invoice / transaction no., for the duplicate check
+  txn_date        VARCHAR(40) NULL,               -- as read, YYYY-MM-DD HH:MM
+  subtotal        DECIMAL(10,2) NULL,
+  tax             DECIMAL(10,2) NOT NULL DEFAULT 0,
+  service_charge  DECIMAL(10,2) NOT NULL DEFAULT 0,
+  discount        DECIMAL(10,2) NOT NULL DEFAULT 0,
+  total           DECIMAL(10,2) NULL,
+  ocr_raw         MEDIUMTEXT NULL,
+  ocr_status      ENUM('ok','failed') NOT NULL DEFAULT 'ok',
+  dup_note        VARCHAR(200) NULL,              -- looks like the same transaction as another receipt
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Photos of a receipt (uploads/receipts): one, or several sections of a long receipt. Receipts read from the same
+-- photo each get a row for it, so a file is deleted only when no row uses it any more.
+CREATE TABLE receipt_photos (
+  id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  receipt_id      INT UNSIGNED NOT NULL,
+  position        SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  image           VARCHAR(255) NOT NULL,
+  sha1            CHAR(40) NULL,                  -- exact copy check
+  dhash           CHAR(64) NULL,                  -- perceptual hash (includes/uploads.php image_dhash) for near-identical photos
+  FOREIGN KEY (receipt_id) REFERENCES receipts(id) ON DELETE CASCADE,
+  INDEX (sha1)
+) ENGINE=InnoDB;
+
 -- Line items extracted by OCR (or typed manually) and corrected on the Review screen.
 CREATE TABLE receipt_items (
   id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   bill_id         INT UNSIGNED NOT NULL,
+  receipt_id      INT UNSIGNED NULL,              -- NULL: typed in manually
   position        SMALLINT UNSIGNED NOT NULL DEFAULT 0,
   name            VARCHAR(120) NOT NULL,
   qty             SMALLINT UNSIGNED NOT NULL DEFAULT 1,
@@ -82,8 +117,10 @@ CREATE TABLE receipt_items (
   details         VARCHAR(255) NULL,              -- a meal set's contents, e.g. "Chicken, Rice, Iced Tea"
   needs_review    TINYINT(1) NOT NULL DEFAULT 0,  -- low-confidence read, must be confirmed on the Review screen
   suggestion      VARCHAR(120) NULL,              -- likely correct name for a misread item
+  dup_note        VARCHAR(160) NULL,              -- same item and price on another receipt, or listed twice
   was_corrected   TINYINT(1) NOT NULL DEFAULT 0,
-  FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE
+  FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE,
+  FOREIGN KEY (receipt_id) REFERENCES receipts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- Which members share each item (split equally among them).

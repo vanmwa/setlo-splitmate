@@ -33,7 +33,8 @@ foreach ($rows as $i => $r) {
     if ($price < 0 || $price > 1000000) {
         fail("Check the price of $name.", 422);
     }
-    $clean[] = ['id' => isset($r['id']) ? (int) $r['id'] : null, 'name' => $name, 'qty' => $qty, 'unit_price' => $price];
+    // needs_review: a flag left open (saved before adding another receipt); Continue only sends confirmed rows.
+    $clean[] = ['id' => isset($r['id']) ? (int) $r['id'] : null, 'name' => $name, 'qty' => $qty, 'unit_price' => $price, 'needs_review' => !empty($r['needs_review'])];
 }
 
 $tax = max(0, round((float) input('tax', 0), 2));
@@ -61,9 +62,9 @@ foreach ($clean as $pos => $it) {
             $it['name'] !== $old['ocr_name'] || $it['qty'] !== (int) $old['qty'] || cents($it['unit_price']) !== cents($old['unit_price'])
         );
         q(
-            'UPDATE receipt_items SET position = ?, name = ?, qty = ?, unit_price = ?, needs_review = 0, suggestion = NULL,
+            'UPDATE receipt_items SET position = ?, name = ?, qty = ?, unit_price = ?, needs_review = ?, suggestion = IF(?, suggestion, NULL),
              was_corrected = GREATEST(was_corrected, ?) WHERE id = ?',
-            [$pos, $it['name'], $it['qty'], $it['unit_price'], (int) $corrected, $it['id']]
+            [$pos, $it['name'], $it['qty'], $it['unit_price'], (int) $it['needs_review'], (int) $it['needs_review'], (int) $corrected, $it['id']]
         );
         $keep[] = $it['id'];
     } else {

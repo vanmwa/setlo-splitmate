@@ -1,6 +1,6 @@
 <?php
 require __DIR__ . '/../includes/api.php';
-require __DIR__ . '/../includes/uploads.php';
+require __DIR__ . '/../includes/receipts.php';
 
 $me = api_user();
 
@@ -68,6 +68,7 @@ if (method() === 'GET') {
         $calc = compute_shares($bill, $members, $items);
         $plan = settlement_plan($bill, $members, $calc);
         $creator = $bill['creator_id'] === $me['id'];
+        $receipts = bill_receipts($bill['id']);
 
         json_ok([
             'bill' => [
@@ -82,7 +83,7 @@ if (method() === 'GET') {
                 'discount'       => (float) $bill['discount'],
                 'invite_code'    => $creator ? $bill['invite_code'] : null,
                 'receipt_total'  => $bill['receipt_total'] === null ? null : (float) $bill['receipt_total'],
-                'has_receipt'    => (bool) $bill['receipt_image'],
+                'has_receipt'    => (bool) $bill['receipt_image'] || $receipts,
                 'ocr_status'     => $bill['ocr_status'],
                 'created_at'     => $bill['created_at'],
                 'settling_at'    => $bill['settling_at'],
@@ -92,6 +93,7 @@ if (method() === 'GET') {
             'me'          => ['id' => $me['id'], 'is_creator' => $creator, 'is_payer' => $bill['payer_id'] === $me['id']],
             'members'     => $members,
             'items'       => $items,
+            'receipts'    => $receipts,
             'shares'      => array_map('pesos', $calc['shares']),
             'subtotal'    => pesos($calc['subtotal']),
             'extras'      => pesos($calc['extras']),
@@ -303,11 +305,13 @@ switch ($action) {
         require_creator($bill, $me);
         require_editable($bill);
         delete_upload('receipts', $bill['receipt_image']);
+        $photos = q('SELECT p.image FROM receipt_photos p JOIN receipts r ON r.id = p.receipt_id WHERE r.bill_id = ?', [$bill['id']])->fetchAll(PDO::FETCH_COLUMN);
         foreach (q('SELECT proof_image FROM settlements WHERE bill_id = ?', [$bill['id']])->fetchAll(PDO::FETCH_COLUMN) as $proof) {
             delete_upload('proofs', $proof);
         }
         $guests = q("SELECT u.id FROM bill_members m JOIN users u ON u.id = m.user_id WHERE m.bill_id = ? AND u.role = 'guest'", [$bill['id']])->fetchAll(PDO::FETCH_COLUMN);
         q('DELETE FROM bills WHERE id = ?', [$bill['id']]);
+        delete_unused_receipt_files($photos);
         foreach ($guests as $gid) {
             q("DELETE FROM users WHERE id = ? AND role = 'guest'", [$gid]);
         }
