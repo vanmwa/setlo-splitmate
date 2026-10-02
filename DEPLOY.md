@@ -178,6 +178,28 @@ Open `https://YOURNAME.duckdns.org` on a phone, sign in, and scan a receipt.
 
 Google only proves who the user is; Setlo verifies the token on the server (`includes/google.php`). A first-time Google user gets a new account with a random password. They keep signing in with Google, or the app manager can reset the password in **Admin → Users**.
 
+## Feature roadmap
+
+Shipped one part at a time. After deploying each part, run `migrate.php` (step 7) — every part adds tables or columns.
+
+### Part 1 — Scanner guidance
+- [x] Live outline around the receipt while the camera is open (OpenCV.js edge/contour detection), and the captured photo cropped and flattened to that outline
+- [x] Reactive alerts: receipt found / not found, lighting (too dark, glare), blurry — hold still
+
+OpenCV.js (~9 MB) loads from `cdn.jsdelivr.net` only when the camera opens; the service worker caches it after the first use. If it can't load (offline), the light and blur checks still work, just without the outline.
+
+### Part 2 — Multiple receipts
+- [ ] Two or more receipts in one photo are read as separate receipts
+- [ ] After the first scan, add more receipts from Upload (several files at once) or Capture (several shots in a row)
+- [ ] A long receipt can be shot in parts and read as one receipt
+- [ ] Flags: same or near-identical photo (checked before the scan, so no Gemini call is wasted), same transaction (receipt no., or store + total + date), repeated items across receipts
+
+### Part 3 — Payment tally
+- [ ] Partial payments, each by its own method (e.g. half online, half cash)
+- [ ] Installments: the bill creator can turn on interest — a % added to the remaining balance after each partial payment
+- [ ] Percentage split of the whole bill (instead of by items)
+- [ ] Pay for another member's settlement, with "They'll pay me back" to turn it into a new debt
+
 ## Updating later
 
 Repeat step 5. The tar excludes `uploads/`, so users' photos are kept. Then run `migrate.php` as in step 7. Do **not** run `setup.php` again, because it wipes the data.
@@ -187,6 +209,7 @@ Repeat step 5. The tar excludes `uploads/`, so users' photos are kept. Then run 
 | Symptom | Fix |
 |---|---|
 | "Receipt scanning isn't set up" banner | `GEMINI_API_KEY` is missing from the vhost (or from `config/local.php` on a local copy), or `php-curl` isn't installed. Run `sudo systemctl reload apache2` after edits. |
+| Camera opens but no outline appears around the receipt | OpenCV.js couldn't load from cdn.jsdelivr.net (offline, or blocked). Light and blur alerts still work; reload once online. |
 | "Continue with Google" says it isn't set up | `GOOGLE_CLIENT_ID` is missing from the vhost. |
 | Google popup shows "origin_mismatch", or the button doesn't appear | Add the exact site address under **Authorized JavaScript origins** of the OAuth client. |
 | "Photo is too large" / upload fails at about 2 MB | The PHP ini from step 3 is not loaded. Check with `php --ini` and the Apache `phpinfo()`. |

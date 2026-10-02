@@ -7,6 +7,7 @@ $nav = 'scan';
 $back = 'my-bills.php';
 $step = 1;
 $billId = (int) ($_GET['bill'] ?? 0);
+$headExtra = ['assets/js/docscan.js'];
 require __DIR__ . '/../partials/head.php';
 ?>
 <div id="app" class="device device-narrow" v-cloak>
@@ -40,10 +41,20 @@ require __DIR__ . '/../partials/head.php';
 
   <div v-else class="flex flex-1 flex-col px-5 pb-5 pt-4">
     <div class="viewfinder h-[300px] shrink-0">
-      <span class="vf-corner tl"></span><span class="vf-corner tr"></span>
-      <span class="vf-corner bl"></span><span class="vf-corner br"></span>
+      <template v-if="state !== 'camera' || !guide.found">
+        <span class="vf-corner tl"></span><span class="vf-corner tr"></span>
+        <span class="vf-corner bl"></span><span class="vf-corner br"></span>
+      </template>
 
       <video ref="video" v-show="state === 'camera'" autoplay playsinline muted class="absolute inset-0 h-full w-full object-cover"></video>
+      <canvas ref="overlay" v-show="state === 'camera'" class="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true"></canvas>
+      <div v-if="state === 'camera'" class="absolute inset-x-0 bottom-4 flex flex-wrap justify-center gap-1.5 px-3" role="status" aria-live="polite">
+        <span v-if="guide.outline !== 'off'" class="vf-chip" :class="guide.outline === 'loading' ? '' : guide.found ? '!bg-emerald-500/80' : '!bg-amber-500/85'">
+          {{ guide.outline === 'loading' ? '… Finding edges' : guide.found ? '▭ Receipt found' : '▭ No receipt in frame' }}
+        </span>
+        <span v-if="guide.light" class="vf-chip" :class="guide.light === 'ok' ? '!bg-emerald-500/80' : '!bg-amber-500/85'">{{ lightLabel[guide.light] }}</span>
+        <span v-if="guide.light" class="vf-chip" :class="guide.sharp ? '!bg-emerald-500/80' : '!bg-amber-500/85'">{{ guide.sharp ? '✓ Sharp' : '≋ Blurry' }}</span>
+      </div>
       <template v-if="state !== 'camera'">
       <img v-if="preview" :src="preview" alt="Receipt preview" class="absolute left-1/2 top-9 h-[200px] w-auto max-w-[70%] -translate-x-1/2 rounded-md object-contain shadow-2xl" />
       <div v-else class="paper absolute left-1/2 top-9 h-[200px] w-[140px] px-4 pt-5" style="transform: translateX(-50%) rotate(-5deg)">
@@ -90,8 +101,8 @@ require __DIR__ . '/../partials/head.php';
     </div>
 
     <div v-else-if="state === 'camera'" class="text-center">
-      <p class="mt-5 text-[16px] font-extrabold text-ink">Fit the whole receipt inside the frame</p>
-      <p class="mt-1 text-[13px] leading-snug text-slate-500">Hold steady, then tap Capture.</p>
+      <p class="mt-5 text-[16px] font-extrabold" :class="hint.ready ? 'text-emerald-600' : 'text-ink'">{{ hint.title }}</p>
+      <p class="mt-1 text-[13px] leading-snug text-slate-500">{{ hint.text }}</p>
       <div class="mt-5 grid grid-cols-2 gap-3">
         <button @click="cancelCamera" class="btn-pill btn-pill-outline">Cancel</button>
         <button @click="capture" class="btn-pill btn-pill-primary">
@@ -121,15 +132,29 @@ require __DIR__ . '/../partials/head.php';
 </div>
 
 <script>
-let cameraStream = null; // kept outside Vue's reactivity
+// Kept outside Vue's reactivity: the stream, the frame analyser and its latest result (outline in video pixels).
+let cameraStream = null, analyzer = null, scanTimer = null, lastScan = null;
 addEventListener('pagehide', () => cameraStream?.getTracks().forEach((t) => t.stop()));
 Setlo.mount({
   data: () => ({
     billId: <?= $billId ?>, ocrReady: <?= gemini_available() ? 'true' : 'false' ?>, ocrProblem: <?= json_encode((string) gemini_setup_problem(), JSON_HEX_TAG | JSON_UNESCAPED_UNICODE) ?>, me: <?= (int) $user['id'] ?>,
     bill: null, bills: [], loading: true, busy: false,
     state: 'capture', preview: null, progress: 0, failMessage: '',
+    // Live camera guidance. outline: 'loading' | 'on' | 'off' (OpenCV couldn't load: light and blur checks only).
+    guide: { outline: 'loading', found: false, light: null, sharp: true, stable: false },
+    lightLabel: { ok: '☀ Good light', dark: '☾ Too dark', glare: '✺ Glare' },
   }),
   computed: {
+    hint() {
+      const g = this.guide;
+      if (!g.light) return { title: 'Fit the whole receipt inside the frame', text: 'Starting the camera…' };
+      if (g.outline === 'on' && !g.found) return { title: 'Fit the whole receipt inside the frame', text: 'Lay it flat on a darker surface so its edges stand out.' };
+      if (g.light === 'dark') return { title: 'Too dark to read', text: 'Move to better light or turn on a lamp.' };
+      if (g.light === 'glare') return { title: 'Glare on the receipt', text: 'Tilt the receipt or phone away from the light.' };
+      if (!g.sharp) return { title: 'Blurry — hold still', text: 'Keep the phone steady and let it focus.' };
+      if (g.outline === 'on' && !g.stable) return { title: 'Hold steady…', text: 'Almost there.' };
+      return { title: 'Ready — tap Capture', text: g.outline === 'on' ? 'The photo will be cropped to the green outline.' : 'Item names, prices, tax and total should be clearly visible.', ready: true };
+    },
     pickable() { return this.bills.filter((b) => b.status === 'draft' || b.status === 'active'); },
   },
   async mounted() {
@@ -148,10 +173,15 @@ Setlo.mount({
     });
   },
   methods: {
-    picked(e) {
+    async picked(e) {
       const file = e.target.files[0];
       e.target.value = '';
-      if (file) this.upload(file);
+      if (!file) return;
+      const q = await Setlo.docscan.checkFile(file);
+      if (q && q.light === 'dark') Setlo.toast('This photo looks dark — if items come out wrong, retake it in better light.', 'warn');
+      else if (q && q.light === 'glare') Setlo.toast('This photo has glare — if items come out wrong, retake it at an angle.', 'warn');
+      else if (q && !q.sharp) Setlo.toast('This photo looks blurry — if items come out wrong, retake it.', 'warn');
+      this.upload(file);
     },
     // Live camera in the viewfinder; the capture="environment" input is the fallback (it only opens a camera on phones).
     async openCamera() {
@@ -167,22 +197,57 @@ Setlo.mount({
         return;
       }
       this.state = 'camera';
+      this.guide = { outline: 'loading', found: false, light: null, sharp: true, stable: false };
       await this.$nextTick();
       this.$refs.video.srcObject = cameraStream;
+      analyzer = Setlo.docscan.createAnalyzer();
+      Setlo.docscan.load().then((cv) => { if (this.state === 'camera') this.guide.outline = cv ? 'on' : 'off'; });
+      this.watchFrames();
+    },
+    // Re-check the frame a few times a second: outline, light, sharpness.
+    watchFrames() {
+      clearTimeout(scanTimer);
+      if (!cameraStream || !analyzer) return;
+      const v = this.$refs.video;
+      const r = v && analyzer.analyze(v);
+      if (r) {
+        lastScan = r;
+        const outline = this.guide.outline === 'loading' && r.outline ? 'on' : this.guide.outline;
+        this.guide = { outline, found: !!r.quad, light: r.light, sharp: r.sharp, stable: r.stable };
+        Setlo.docscan.drawOverlay(this.$refs.overlay, v, r.quad, r.light === 'ok' && r.sharp);
+      }
+      scanTimer = setTimeout(this.watchFrames, 150);
     },
     stopCamera() {
+      clearTimeout(scanTimer);
+      analyzer = null;
+      lastScan = null;
       cameraStream?.getTracks().forEach((t) => t.stop());
       cameraStream = null;
       if (this.$refs.video) this.$refs.video.srcObject = null;
     },
     cancelCamera() { this.stopCamera(); this.reset(); },
-    capture() {
+    async capture() {
       const v = this.$refs.video;
       if (!v.videoWidth) return; // camera not showing a picture yet
-      const canvas = document.createElement('canvas');
-      canvas.width = v.videoWidth;
-      canvas.height = v.videoHeight;
-      canvas.getContext('2d').drawImage(v, 0, 0);
+      const scan = lastScan;
+      if (scan && (scan.light === 'dark' || !scan.sharp)) {
+        clearTimeout(scanTimer); // freeze the guidance while asking
+        const ok = await Setlo.confirm({
+          title: scan.light === 'dark' ? 'Photo may be too dark' : 'Photo may be blurry',
+          text: 'Item names may come out wrong. Capture anyway?', confirmText: 'Capture anyway', cancelText: 'Retake',
+        });
+        if (!ok) { this.watchFrames(); return; }
+        if (!cameraStream) return;
+      }
+      // Cropped and flattened to the outline when one was found; otherwise the whole frame.
+      let canvas = scan && scan.quad ? Setlo.docscan.warp(v, scan.quad) : null;
+      if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.width = v.videoWidth;
+        canvas.height = v.videoHeight;
+        canvas.getContext('2d').drawImage(v, 0, 0);
+      }
       this.stopCamera();
       canvas.toBlob((blob) => this.upload(new File([blob], 'receipt.jpg', { type: 'image/jpeg' })), 'image/jpeg', 0.9);
     },
