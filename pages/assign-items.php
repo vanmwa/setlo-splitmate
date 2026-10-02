@@ -18,7 +18,7 @@ require __DIR__ . '/../partials/head.php';
       <?php require __DIR__ . '/../partials/back.php'; ?>
       <div class="min-w-0 flex-1">
         <h1 class="text-[19px] font-extrabold leading-tight tracking-tight">Assign Items</h1>
-        <p class="truncate text-[12px] font-medium text-brand-50/90">Pick a member, then tap what they shared</p>
+        <p class="truncate text-[12px] font-medium text-brand-50/90">{{ splitMode === 'percent' ? 'Set each member’s share of the bill' : 'Pick a member, then tap what they shared' }}</p>
       </div>
       <span v-if="saving" class="text-[11px] font-semibold text-brand-50/80">Saving…</span>
     </div>
@@ -28,6 +28,31 @@ require __DIR__ . '/../partials/head.php';
 
   <spinner v-if="loading"></spinner>
   <div v-else class="flex-1 pb-4 pt-4">
+    <div class="mx-5 mb-3 grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white p-1 text-[12.5px] font-bold" role="radiogroup" aria-label="How to split">
+      <button @click="setMode('items')" role="radio" :aria-checked="splitMode === 'items'" :disabled="busy" class="rounded-xl py-2" :class="splitMode === 'items' ? 'bg-brand-600 text-white' : 'text-slate-500'">By items</button>
+      <button @click="setMode('percent')" role="radio" :aria-checked="splitMode === 'percent'" :disabled="busy" class="rounded-xl py-2" :class="splitMode === 'percent' ? 'bg-brand-600 text-white' : 'text-slate-500'">By percentage</button>
+    </div>
+
+    <!-- Percentage split: each member pays a set share of the whole bill -->
+    <div v-if="splitMode === 'percent'" class="tile mx-5 p-4">
+      <div class="flex items-center justify-between gap-3">
+        <p class="text-[14px] font-extrabold text-ink">Who pays what share</p>
+        <button @click="evenPercents" class="text-[12px] font-bold text-brand-700">Split evenly</button>
+      </div>
+      <p class="mt-0.5 text-[12px] text-slate-400">Of the whole bill: {{ peso(billTotal / 100) }}, with tax, service charge and discount.</p>
+      <div class="mt-3 space-y-2">
+        <label v-for="m in members" :key="m.id" class="flex items-center gap-2.5">
+          <avatar :user="m" :size="28"></avatar>
+          <span class="min-w-0 flex-1 truncate text-[13px] font-semibold">{{ m.id === me ? 'You' : m.name }}</span>
+          <input :value="pctDraft[m.id]" @input="setPct(m, $event)" :data-field="'pct' + m.id" inputmode="decimal" placeholder="0" class="row-in !h-9 w-[72px] text-right" :aria-label="'Percent for ' + m.name" />
+          <span class="text-[13px] text-slate-400">%</span>
+          <span class="w-[76px] text-right text-[13px] font-bold text-ink">{{ peso((shares[m.id] || 0) / 100) }}</span>
+        </label>
+      </div>
+      <p class="mt-3 text-[12px] font-semibold" :class="pctOk ? 'text-brand-600' : 'text-rose-500'">{{ pctMessage }}</p>
+    </div>
+
+    <template v-else>
     <div class="no-scrollbar flex gap-2 overflow-x-auto px-5 pb-1">
       <button v-for="m in members" :key="m.id" @click="active = m.id" class="mchip" :class="{ on: m.id === active }">
         <avatar :user="m" :size="28"></avatar>{{ m.id === me ? 'You' : m.first }}
@@ -98,6 +123,7 @@ require __DIR__ . '/../partials/head.php';
         <span class="text-[13px] font-bold text-ink">{{ peso(shares[m.id] / 100) }}</span>
       </div>
     </div>
+    </template>
   </div>
 
   <div class="dock">
@@ -125,6 +151,16 @@ require __DIR__ . '/../partials/head.php';
         </div>
         <p v-if="!plan.length" class="text-[13px] text-slate-400">Nobody owes anyone — the bill will close right away.</p>
       </div>
+      <label v-if="plan.length" class="mt-4 flex items-start gap-2.5 rounded-2xl bg-slate-50 px-3.5 py-3 text-[12.5px] leading-snug text-slate-600">
+        <input type="checkbox" v-model="interestOn" class="mt-0.5 h-4 w-4 shrink-0 accent-brand-600" />
+        <span><b class="text-ink">Allow installments with interest</b><br />Anyone can pay in parts; each partial payment adds this % of what's still left.</span>
+      </label>
+      <div v-if="plan.length && interestOn" class="mt-2 flex items-center gap-2 px-1 text-[13px]">
+        <span class="flex-1 text-slate-500">Interest after each partial payment</span>
+        <input v-model="interestRate" data-field="interest" inputmode="decimal" class="row-in !h-9 w-20 text-right" :class="{ 'is-invalid': interestError }" aria-label="Interest rate in percent" />
+        <span class="text-slate-400">%</span>
+      </div>
+      <p v-if="plan.length && interestOn && interestError" class="field-error px-1">{{ interestError }}</p>
       <div class="mt-5 grid grid-cols-2 gap-3">
         <button @click="confirming = false" class="btn-pill btn-pill-soft">Back</button>
         <button @click="send" class="btn-pill btn-pill-primary" :disabled="busy">Start settling</button>
@@ -158,6 +194,9 @@ Setlo.mount({
     loading: true, busy: false, saving: false, confirming: false,
     bill: null, members: [], items: [], plan: [], paidBy: [], active: <?= (int) $user['id'] ?>, saveTimer: null,
     discountLabel: { none: '', senior: ' · Senior', pwd: ' · PWD' },
+    // Percentage split: typed percents per member (strings), saved after a short pause.
+    splitMode: 'items', pctDraft: {}, pctTimer: null,
+    interestOn: false, interestRate: '5',
   }),
   computed: {
     memberMap() { return Object.fromEntries(this.members.map((m) => [m.id, m])); },
@@ -172,9 +211,31 @@ Setlo.mount({
     },
     discount() { return this.bill ? this.bill.discount : 0; },
     flaggedCount() { return this.members.filter((m) => m.discount_type !== 'none').length; },
-    /** Mirrors the server's compute_shares(): cents per member, plus each member's discount. */
+    /** Whole bill in cents: items + tax (unless already in the prices) + service charge − discount. */
+    billTotal() {
+      return this.items.reduce((s, it) => s + cents(it.line_total), 0) + cents(this.extras) - cents(this.discount);
+    },
+    pctTotal() {
+      return Math.round(this.members.reduce((s, m) => s + (parseFloat(this.pctDraft[m.id]) || 0), 0) * 100) / 100;
+    },
+    pctOk() { return Math.round(this.pctTotal * 100) === 10000; },
+    pctMessage() {
+      if (this.pctOk) return 'Adds up to 100% ✓';
+      const gap = Math.round(Math.abs(100 - this.pctTotal) * 100) / 100;
+      return `Adds up to ${this.pctTotal}% — make it 100% (${this.pctTotal < 100 ? gap + '% left' : gap + '% too much'})`;
+    },
+    interestError() {
+      const r = parseFloat(this.interestRate);
+      return !this.interestOn || (r > 0 && r <= 20) ? '' : 'Enter a rate above 0% and up to 20%.';
+    },
+    /** Mirrors the server's compute_shares() and compute_percent_shares(): cents per member, plus each member's discount. */
     calc() {
       const ids = this.members.map((m) => m.id);
+      if (this.splitMode === 'percent') {
+        const weights = Object.fromEntries(this.members.map((m) => [m.id, Math.round((parseFloat(this.pctDraft[m.id]) || 0) * 100)]));
+        const shares = this.pctOk ? splitProportional(this.billTotal, weights) : Object.fromEntries(ids.map((id) => [id, 0]));
+        return { shares, discountBy: Object.fromEntries(ids.map((id) => [id, 0])) };
+      }
       const items = Object.fromEntries(ids.map((id) => [id, 0]));
       for (const it of this.items) {
         if (!it.who.length) continue;
@@ -204,6 +265,8 @@ Setlo.mount({
       if (fresh && shown !== null && shown !== state()) return; // already tapping: keep their work
       this.bill = r.bill;
       this.members = r.members;
+      this.splitMode = r.bill.split_mode || 'items';
+      this.fillPercents();
       this.paidBy = Object.keys(r.payments.paid).map(Number);
       this.items = r.items;
       if (!fresh) shown = state();
@@ -211,6 +274,46 @@ Setlo.mount({
     window.addEventListener('beforeunload', this.flush);
   },
   methods: {
+    fillPercents() {
+      this.pctDraft = Object.fromEntries(this.members.map((m) => [m.id, m.percent === null || m.percent === undefined ? '' : String(m.percent)]));
+    },
+    async setMode(mode) {
+      if (mode === this.splitMode) return;
+      if (this.saveTimer) await this.persist();
+      const r = await Setlo.run(this, () => api.post('bills.php', { action: 'set_split_mode', bill_id: this.billId, mode }));
+      if (!r) return;
+      this.members = r.members;
+      this.splitMode = mode;
+      this.fillPercents();
+    },
+    setPct(m, e) {
+      let v = Setlo.filterMoney(e.target.value);
+      if (parseFloat(v) > 100) v = '100';
+      e.target.value = v;
+      this.pctDraft[m.id] = v;
+      clearTimeout(this.pctTimer);
+      this.pctTimer = setTimeout(this.savePercents, 500);
+    },
+    evenPercents() {
+      const ids = this.members.map((m) => m.id);
+      const parts = splitEvenly(10000, ids); // hundredths of a percent, leftovers to the first members
+      this.pctDraft = Object.fromEntries(ids.map((id) => [id, String(parts[id] / 100)]));
+      this.savePercents();
+    },
+    async savePercents() {
+      clearTimeout(this.pctTimer);
+      this.pctTimer = null;
+      const percents = Object.fromEntries(this.members.map((m) => [m.id, this.pctDraft[m.id] === '' ? null : parseFloat(this.pctDraft[m.id])]));
+      this.saving = true;
+      try {
+        await api.post('bills.php', { action: 'set_percents', bill_id: this.billId, percents });
+      } catch (e) {
+        Setlo.toast(e.message);
+        throw e;
+      } finally {
+        this.saving = false;
+      }
+    },
     async cycleDiscount(m) {
       const next = { none: 'senior', senior: 'pwd', pwd: 'none' }[m.discount_type];
       const r = await Setlo.run(this, () => api.post('bills.php', { action: 'set_discount_type', bill_id: this.billId, user_id: m.id, type: next }));
@@ -239,20 +342,26 @@ Setlo.mount({
         this.saving = false;
       }
     },
-    flush() { if (this.saveTimer) this.persist(); },
+    flush() {
+      if (this.saveTimer) this.persist();
+      if (this.pctTimer) this.savePercents();
+    },
     async splitEvenly() {
       if (this.saveTimer) await this.persist();
       const r = await Setlo.run(this, () => api.post('assignments.php', { bill_id: this.billId, action: 'split_evenly' }));
       if (r) this.items = r.items;
     },
     async finish() {
-      if (this.unassignedCount) {
+      if (this.splitMode === 'percent') {
+        if (!this.pctOk) { Setlo.toast('The percentages must add up to 100%.'); return; }
+      } else if (this.unassignedCount) {
         Setlo.toast('Assign ' + this.unassigned.map((it) => it.name).join(', ') + ' first');
         return;
       }
       // The plan comes from the server so the preview is exactly what will be created.
       const r = await Setlo.run(this, async () => {
         await this.persist();
+        if (this.splitMode === 'percent') await this.savePercents();
         return api.get('bills.php', { id: this.billId });
       });
       if (!r) return;
@@ -264,9 +373,11 @@ Setlo.mount({
       this.confirming = true;
     },
     async send() {
+      if (this.plan.length && this.interestError) { Setlo.toast(this.interestError); return; }
+      const interest_rate = this.plan.length && this.interestOn ? parseFloat(this.interestRate) : null;
       const r = await Setlo.run(this, async () => {
         await this.persist();
-        return api.post('bills.php', { action: 'start_settling', bill_id: this.billId });
+        return api.post('bills.php', { action: 'start_settling', bill_id: this.billId, interest_rate });
       });
       if (r) location.href = r.redirect;
     },

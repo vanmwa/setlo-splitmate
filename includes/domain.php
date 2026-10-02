@@ -69,11 +69,16 @@ function public_user(array $u): array
 function bill_members(int $billId): array
 {
     $rows = q(
-        'SELECT u.id, u.full_name, u.avatar_color, u.role, u.payment_method, u.payment_account, m.discount_type FROM bill_members m
+        'SELECT u.id, u.full_name, u.avatar_color, u.role, u.payment_method, u.payment_account, m.discount_type, m.percent FROM bill_members m
          JOIN users u ON u.id = m.user_id WHERE m.bill_id = ? ORDER BY m.joined_at, u.id',
         [$billId]
     )->fetchAll();
-    return array_map(fn ($u) => public_user($u) + ['payment_method' => $u['payment_method'], 'payment_account' => $u['payment_account'], 'discount_type' => $u['discount_type']], $rows);
+    return array_map(fn ($u) => public_user($u) + [
+        'payment_method'  => $u['payment_method'],
+        'payment_account' => $u['payment_account'],
+        'discount_type'   => $u['discount_type'],
+        'percent'         => $u['percent'] === null ? null : (float) $u['percent'],
+    ], $rows);
 }
 
 function bill_items(int $billId): array
@@ -180,6 +185,9 @@ function tax_included(array $bill, int $subtotal): bool
  */
 function compute_shares(array $bill, array $members, array $items): array
 {
+    if (($bill['split_mode'] ?? 'items') === 'percent') {
+        return compute_percent_shares($bill, $members, $items);
+    }
     $ids = array_column($members, 'id');
     $shares = array_fill_keys($ids, 0);
     $subtotal = 0;
@@ -237,13 +245,48 @@ function compute_shares(array $bill, array $members, array $items): array
         'total'            => $subtotal + $extras - $discount,
         'unassigned'       => $unassigned,
         'unassigned_count' => $unassignedCount,
+        'split_mode'       => 'items',
+        'percent_total'    => null,
+    ];
+}
+
+/**
+ * Percentage split: the whole bill total (items, tax and service charge as in compute_shares(), less the receipt
+ * discount) is shared by each member's bill_members.percent; item assignments don't matter. Until the
+ * percentages add up to exactly 100 every share is 0 and percent_total (in hundredths of a percent) says why.
+ */
+function compute_percent_shares(array $bill, array $members, array $items): array
+{
+    $ids = array_column($members, 'id');
+    $subtotal = array_sum(array_map(fn ($it) => cents($it['line_total']), $items));
+    $taxIncluded = tax_included($bill, $subtotal);
+    $extras = ($taxIncluded ? 0 : cents($bill['tax'])) + cents($bill['service_charge']);
+    $discount = cents($bill['discount'] ?? 0);
+    $total = $subtotal + $extras - $discount;
+    $weights = [];
+    foreach ($members as $m) {
+        $weights[$m['id']] = (int) round(((float) ($m['percent'] ?? 0)) * 100);
+    }
+    $percentTotal = array_sum($weights);
+    return [
+        'shares'           => $percentTotal === 10000 ? split_proportional($total, $weights) : array_fill_keys($ids, 0),
+        'subtotal'         => $subtotal,
+        'extras'           => $extras,
+        'tax_included'     => $taxIncluded,
+        'discount'         => $discount,
+        'discount_by'      => array_fill_keys($ids, 0),
+        'total'            => $total,
+        'unassigned'       => 0,
+        'unassigned_count' => 0,
+        'split_mode'       => 'percent',
+        'percent_total'    => $percentTotal,
     ];
 }
 
 function bill_settlements(int $billId): array
 {
     $rows = q(
-        'SELECT s.*, fu.full_name AS from_name, fu.avatar_color AS from_color, fu.role AS from_role, tu.full_name AS to_name, tu.avatar_color AS to_color, tu.payment_method AS to_method, tu.payment_account AS to_account, tu.pay_code AS to_pay_code
+        'SELECT s.*, ' . SETTLEMENT_ONLINE_STARTED . ', fu.full_name AS from_name, fu.avatar_color AS from_color, fu.role AS from_role, tu.full_name AS to_name, tu.avatar_color AS to_color, tu.payment_method AS to_method, tu.payment_account AS to_account, tu.pay_code AS to_pay_code
          FROM settlements s JOIN users fu ON fu.id = s.from_user_id JOIN users tu ON tu.id = s.to_user_id
          WHERE s.bill_id = ? ORDER BY s.id',
         [$billId]
@@ -251,17 +294,28 @@ function bill_settlements(int $billId): array
     return array_map('settlement_row', $rows);
 }
 
+// Select column: an online checkout opened for this settlement and not paid yet.
+const SETTLEMENT_ONLINE_STARTED = "EXISTS(SELECT 1 FROM settlement_payments sp WHERE sp.settlement_id = s.id AND sp.status = 'started') AS online_started";
+
 function settlement_row(array $s): array
 {
+    $amount = cents($s['amount']);
+    $principal = $s['principal'] === null ? $amount : cents($s['principal']);
+    $paid = cents($s['paid_amount'] ?? 0);
     return [
         'id'             => (int) $s['id'],
+        'principal'      => pesos($principal),
+        'paid_amount'    => pesos($paid),
+        'remaining'      => pesos(max(0, $amount - $paid)),
+        'interest_rate'  => $s['interest_rate'] === null ? null : (float) $s['interest_rate'],
+        'interest_added' => pesos(max(0, $amount - $principal)),
         'bill_id'        => (int) $s['bill_id'],
         'bill_name'      => $s['bill_name'] ?? null,
         'bill_creator_id'=> (int) ($s['bill_creator_id'] ?? 0),
         'amount'         => (float) $s['amount'],
         'status'         => $s['status'],
         'settle_method'  => $s['settle_method'] ?? null,
-        'online_started' => !empty($s['paymongo_session']),
+        'online_started' => (bool) ($s['online_started'] ?? false),
         'paid_at'        => $s['paid_at'],
         'confirmed_at'   => $s['confirmed_at'],
         'disputed_at'    => $s['disputed_at'],
@@ -393,7 +447,7 @@ function settlement_plan(array $bill, array $members, array $calc): array
     $mismatch = $paidTotal - $calc['total'];
 
     $transfers = [];
-    if ($mismatch === 0 && $calc['unassigned_count'] === 0) {
+    if ($mismatch === 0 && $calc['unassigned_count'] === 0 && in_array($calc['percent_total'] ?? null, [null, 10000], true)) {
         $bal = $balances;
         while (true) {
             $debtor = $creditor = null;
@@ -417,9 +471,13 @@ function settlement_plan(array $bill, array $members, array $calc): array
     return ['transfers' => $transfers, 'balances' => $balances, 'paid' => $paid, 'paid_total' => $paidTotal, 'mismatch' => $mismatch];
 }
 
-/** Lock the bill and create the settlements from the plan. */
-function start_settling(array $bill, array $actor): void
+/**
+ * Lock the bill and create the settlements from the plan. $interestRate (% of what's left, added after each
+ * partial payment) turns on installments with interest for every settlement of the bill; null or 0 = no interest.
+ */
+function start_settling(array $bill, array $actor, ?float $interestRate = null): void
 {
+    $interestRate = $interestRate > 0 ? round($interestRate, 2) : null;
     $members = bill_members($bill['id']);
     $items = bill_items($bill['id']);
     if (!$items) {
@@ -428,6 +486,9 @@ function start_settling(array $bill, array $actor): void
     $calc = compute_shares($bill, $members, $items);
     if ($calc['unassigned_count'] > 0) {
         fail('Assign every item first — ' . peso_str($calc['unassigned']) . ' is still unassigned.', 422);
+    }
+    if ($calc['split_mode'] === 'percent' && $calc['percent_total'] !== 10000) {
+        fail('The percentages add up to ' . rtrim(rtrim(number_format($calc['percent_total'] / 100, 2), '0'), '.') . '% — make them 100% first.', 422);
     }
     $plan = settlement_plan($bill, $members, $calc);
     if ($plan['mismatch'] !== 0) {
@@ -439,12 +500,13 @@ function start_settling(array $bill, array $actor): void
     $pdo = db();
     $pdo->beginTransaction();
     try {
-        q("UPDATE bills SET status = 'settling', settling_at = NOW() WHERE id = ? AND status IN ('draft','active')", [$bill['id']]);
+        q("UPDATE bills SET status = 'settling', settling_at = NOW(), interest_rate = ? WHERE id = ? AND status IN ('draft','active')", [$interestRate, $bill['id']]);
         foreach ($plan['transfers'] as [$from, $to, $c]) {
-            q('INSERT INTO settlements (bill_id, from_user_id, to_user_id, amount) VALUES (?, ?, ?, ?)', [$bill['id'], $from, $to, pesos($c)]);
+            q('INSERT INTO settlements (bill_id, from_user_id, to_user_id, principal, amount, interest_rate) VALUES (?, ?, ?, ?, ?, ?)', [$bill['id'], $from, $to, pesos($c), pesos($c), $interestRate]);
             $sid = (int) $pdo->lastInsertId();
             log_event($sid, $actor['id'], 'created', 'Generated from ' . $bill['name'] . ' balances.');
-            notify($from, 'settling', "You owe {$names[$to]} " . peso_str($c) . " for {$bill['name']}.", 'my-settlements');
+            notify($from, 'settling', "You owe {$names[$to]} " . peso_str($c) . " for {$bill['name']}."
+                . ($interestRate ? " Paying in parts adds {$interestRate}% of what's left each time." : ''), 'my-settlements');
         }
         foreach (array_unique(array_column($plan['transfers'], 1)) as $to) {
             notify($to, 'settling', "{$bill['name']} is now settling — you'll be asked to confirm each payment.", 'bill-detail?bill=' . $bill['id']);

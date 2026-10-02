@@ -11,7 +11,7 @@ $sum = function (string $col) use ($me): array {
     if (!in_array($col, ['from_user_id', 'to_user_id'], true)) {
         throw new InvalidArgumentException('Invalid column for $sum().');
     }
-    $r = q("SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS n FROM settlements WHERE $col = ? AND status <> 'settled'", [$me['id']])->fetch();
+    $r = q("SELECT COALESCE(SUM(amount - paid_amount), 0) AS total, COUNT(*) AS n FROM settlements WHERE $col = ? AND status <> 'settled'", [$me['id']])->fetch();
     return ['total' => (float) $r['total'], 'count' => (int) $r['n']];
 };
 

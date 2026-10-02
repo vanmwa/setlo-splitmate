@@ -42,6 +42,9 @@ require __DIR__ . '/../partials/head.php';
     <p v-if="!canEdit && !bill.locked" class="mb-3 rounded-xl border border-brand-100 bg-brand-50 px-3.5 py-2.5 text-[12px] font-medium text-brand-800">
       You're a Bill Member. Only the Bill Creator ({{ creatorName }}) can change assignments.
     </p>
+    <p v-if="byPercent" class="mb-3 rounded-xl border border-brand-100 bg-brand-50 px-3.5 py-2.5 text-[12px] font-medium text-brand-800">
+      This bill is split by percentage of the whole total, so items don't need assigning. <a v-if="canEdit" :href="'assign-items.php?bill=' + billId" class="font-bold underline">Change the split</a>
+    </p>
     <p v-if="bill.locked" class="mb-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-[12px] text-slate-500">
       <b class="text-slate-700">Editing locked.</b> This bill is {{ bill.status === 'closed' ? 'closed' : 'settling' }}, so item assignments can't change.
     </p>
@@ -116,7 +119,9 @@ Setlo.mount({
     memberMap() { return Object.fromEntries(this.d.members.map((m) => [m.id, m])); },
     canEdit() { return this.bill && this.d.me.is_creator && !this.bill.locked; },
     creatorName() { return (this.memberMap[this.bill.creator_id] || {}).name; },
-    unassignedCount() { return this.d.items.filter((it) => !it.who.length).length; },
+    byPercent() { return !!this.bill && this.bill.split_mode === 'percent'; },
+    // Split by percentage: items don't need assigning.
+    unassignedCount() { return this.byPercent ? 0 : this.d.items.filter((it) => !it.who.length).length; },
   },
   async mounted() { await Setlo.load(this, 'bills.php', { id: this.billId }, (r) => { this.d = r; this.bill = r.bill; }); },
   methods: {

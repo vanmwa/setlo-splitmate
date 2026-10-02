@@ -78,7 +78,7 @@ function db(): PDO
  * must travel through $params as a `?` placeholder — never be concatenated or interpolated into $sql.
  * PDO::ATTR_EMULATE_PREPARES is off (see db()), so placeholders are sent to MySQL as real bind
  * parameters, not just escaped and spliced client-side. The few places that interpolate a column name
- * or SQL fragment (api/dashboard.php, api/settlements.php) only ever do so from a hardcoded literal,
+ * or SQL fragment (api/dashboard.php, includes/receipts.php) only ever do so from a hardcoded literal,
  * guarded by an explicit whitelist check — follow that pattern if you add another one.
  */
 function q(string $sql, array $params = []): PDOStatement

@@ -73,9 +73,9 @@ $keys = array_keys($months);
 $thisMonth = $months[end($keys)];
 $lastMonth = $months[$keys[count($keys) - 2]];
 $flow = q(
-    "SELECT COALESCE(SUM(CASE WHEN from_user_id = ? THEN amount END), 0) AS paid_out,
-            COALESCE(SUM(CASE WHEN to_user_id = ? THEN amount END), 0) AS received
-     FROM settlements WHERE status = 'settled' AND (from_user_id = ? OR to_user_id = ?)",
+    "SELECT COALESCE(SUM(CASE WHEN from_user_id = ? THEN paid_amount END), 0) AS paid_out,
+            COALESCE(SUM(CASE WHEN to_user_id = ? THEN paid_amount END), 0) AS received
+     FROM settlements WHERE paid_amount > 0 AND (from_user_id = ? OR to_user_id = ?)",
     [$me['id'], $me['id'], $me['id'], $me['id']]
 )->fetch();
 

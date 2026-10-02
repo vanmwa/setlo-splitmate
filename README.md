@@ -129,7 +129,8 @@ Role is never fixed by who created the Bill — it's determined by who paid the 
 - `receipts` (each receipt scanned into a bill: store, receipt no., date, totals, duplicate warning) and `receipt_photos` (its photo, or several for a long receipt, with hashes for the duplicate-photo check)
 - `receipt_items` (extracted/corrected item name, price, quantity; which receipt it came from)
 - `item_assignments` (which member(s) each item is assigned to)
-- `settlements` (sender, receiver, amount, status, timestamps for paid/confirmed)
+- `settlements` (sender, receiver, amount owed incl. any installment interest, amount paid so far, status, timestamps for paid/confirmed)
+- `settlement_payments` (each part of a payment: amount, method, who paid it — the debtor or someone paying for them — and its confirm/reject status)
 - `notifications`
 
 ## 10. Demo Scenario (fixed for consistency across mockups and defense)

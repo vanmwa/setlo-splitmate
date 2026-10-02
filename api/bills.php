@@ -81,6 +81,9 @@ if (method() === 'GET') {
                 'tax_included'   => $calc['tax_included'],
                 'service_charge' => (float) $bill['service_charge'],
                 'discount'       => (float) $bill['discount'],
+                'split_mode'     => $calc['split_mode'],
+                'percent_total'  => $calc['percent_total'] === null ? null : $calc['percent_total'] / 100,
+                'interest_rate'  => $bill['interest_rate'] === null ? null : (float) $bill['interest_rate'],
                 'invite_code'    => $creator ? $bill['invite_code'] : null,
                 'receipt_total'  => $bill['receipt_total'] === null ? null : (float) $bill['receipt_total'],
                 'has_receipt'    => (bool) $bill['receipt_image'] || $receipts,
@@ -295,10 +298,59 @@ switch ($action) {
         q('UPDATE bills SET payer_id = ? WHERE id = ?', [$uid, $bill['id']]);
         json_ok();
 
+    case 'set_split_mode':
+        // items: each item split among who shared it · percent: each member pays a set % of the whole bill
+        require_creator($bill, $me);
+        require_editable($bill);
+        $mode = input('mode', 'items');
+        if (!in_array($mode, ['items', 'percent'], true)) {
+            fail('Unknown split mode.', 422);
+        }
+        q('UPDATE bills SET split_mode = ? WHERE id = ?', [$mode, $bill['id']]);
+        if ($mode === 'percent' && !q('SELECT 1 FROM bill_members WHERE bill_id = ? AND percent IS NOT NULL LIMIT 1', [$bill['id']])->fetchColumn()) {
+            // First switch: start from an even split, leftover hundredths to the first members.
+            $ids = array_column(bill_members($bill['id']), 'id');
+            foreach (split_evenly(10000, $ids) as $uid => $bp) {
+                q('UPDATE bill_members SET percent = ? WHERE bill_id = ? AND user_id = ?', [$bp / 100, $bill['id'], $uid]);
+            }
+        }
+        json_ok(['members' => bill_members($bill['id'])]);
+
+    case 'set_percents':
+        // percents: { user_id: percent }. Saved as typed (they may not add up to 100 yet); settling checks the total.
+        require_creator($bill, $me);
+        require_editable($bill);
+        $raw = input('percents', []);
+        if (!is_array($raw)) {
+            fail('Invalid percentages.', 422);
+        }
+        $memberIds = array_column(bill_members($bill['id']), 'id');
+        $pdo = db();
+        $pdo->beginTransaction();
+        foreach ($raw as $uid => $pct) {
+            $uid = (int) $uid;
+            if (!in_array($uid, $memberIds, true)) {
+                fail('Not a member of this bill.', 422);
+            }
+            $pct = $pct === null || $pct === '' ? null : round((float) $pct, 2);
+            if ($pct !== null && ($pct < 0 || $pct > 100)) {
+                fail('Each percentage must be between 0 and 100.', 422);
+            }
+            q('UPDATE bill_members SET percent = ? WHERE bill_id = ? AND user_id = ?', [$pct, $bill['id'], $uid]);
+        }
+        $pdo->commit();
+        json_ok(['members' => bill_members($bill['id'])]);
+
     case 'start_settling':
         require_creator($bill, $me);
         require_editable($bill);
-        start_settling($bill, $me);
+        // Installments with interest (optional): % of what's left, added after each partial payment.
+        $rate = input('interest_rate');
+        $rate = $rate === null || $rate === '' ? null : round((float) $rate, 2);
+        if ($rate !== null && ($rate < 0 || $rate > 20)) {
+            fail('The interest rate must be between 0% and 20%.', 422, ['fields' => ['interest' => 'Between 0% and 20%.']]);
+        }
+        start_settling($bill, $me, $rate);
         json_ok(['redirect' => 'bill-detail?bill=' . $bill['id']]);
 
     case 'delete':

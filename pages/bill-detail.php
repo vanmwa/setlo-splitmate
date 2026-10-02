@@ -140,15 +140,27 @@ require __DIR__ . '/../partials/head.php';
           <p v-if="!d.plan.length" class="text-[12px] text-slate-400">Nobody owes anyone.</p>
         </div>
       </div>
-      <a v-for="s in d.settlements" :key="s.id" :href="'settlement-audit.php?id=' + s.id" class="tile flex items-center justify-between p-3.5">
-        <div class="flex items-center gap-2.5">
-          <avatar :user="s.from" :size="32"></avatar>
-          <svg class="h-4 w-4 text-slate-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-          <avatar :user="s.to" :size="32"></avatar>
-          <p class="ml-1 text-sm font-semibold">{{ peso(s.amount) }}</p>
+      <p v-if="d.settlements.length && bill.interest_rate" class="rounded-xl bg-amber-50 px-3.5 py-2.5 text-[12px] text-amber-800">
+        <b>Installments on:</b> each partial payment adds {{ bill.interest_rate }}% of what's left.
+      </p>
+      <div v-for="s in d.settlements" :key="s.id" class="tile p-3.5">
+        <a :href="'settlement-audit.php?id=' + s.id" class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <avatar :user="s.from" :size="32"></avatar>
+            <svg class="h-4 w-4 text-slate-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            <avatar :user="s.to" :size="32"></avatar>
+            <p class="ml-1 text-sm font-semibold">{{ peso(s.amount) }}</p>
+          </div>
+          <status-pill :status="s.status"></status-pill>
+        </a>
+        <div v-if="s.paid_amount > 0 && s.status !== 'settled'" class="mt-2.5">
+          <div class="progress !h-1.5"><span :style="{ width: Math.min(100, (100 * s.paid_amount) / s.amount) + '%' }"></span></div>
+          <p class="mt-1 text-[11px] text-slate-500">{{ peso(s.paid_amount) }} paid · {{ peso(s.remaining) }} left<span v-if="s.interest_added > 0"> · incl. {{ peso(s.interest_added) }} interest</span></p>
         </div>
-        <status-pill :status="s.status"></status-pill>
-      </a>
+        <div v-if="canCover(s)" class="mt-2 text-right">
+          <a :href="'my-settlements?cover=' + s.id" class="text-[12px] font-bold text-brand-700">Pay for {{ s.from.first }} →</a>
+        </div>
+      </div>
       <a v-if="d.settlements.length && bill.status !== 'closed'" href="my-settlements" class="block pt-1 text-center text-xs font-semibold text-brand-600">Manage in My Settlements →</a>
     </template>
 
@@ -158,7 +170,7 @@ require __DIR__ . '/../partials/head.php';
         <div v-for="it in d.items" :key="it.id" class="flex items-center justify-between gap-3 p-3.5">
           <div class="min-w-0">
             <p class="text-sm font-medium">{{ it.name }}{{ it.qty > 1 ? ' ×' + it.qty : '' }}</p>
-            <p class="text-xs text-slate-400">{{ it.who.length ? it.who.map((id) => memberMap[id].first).join(', ') : 'Unassigned' }}</p>
+            <p class="text-xs text-slate-400">{{ it.who.length ? it.who.map((id) => memberMap[id].first).join(', ') : bill.split_mode === 'percent' ? 'Split by percentage' : 'Unassigned' }}</p>
           </div>
           <p class="shrink-0 text-sm font-semibold">{{ peso(it.line_total) }}</p>
         </div>
@@ -175,7 +187,10 @@ require __DIR__ . '/../partials/head.php';
       <div v-if="bill.discount > 0" class="flex justify-between"><span class="text-slate-500">Receipt discount</span><span class="font-semibold text-emerald-600">−{{ peso(bill.discount) }}</span></div>
       <div class="flex justify-between"><span class="text-slate-500">Bill total</span><span class="font-semibold">{{ peso(d.total) }}</span></div>
       <div v-if="bill.receipt_total !== null" class="flex justify-between"><span class="text-slate-500">Receipt total</span><span class="font-semibold">{{ peso(bill.receipt_total) }}</span></div>
-      <div class="flex justify-between"><span class="text-slate-500">Fully assigned</span>
+      <div v-if="bill.split_mode === 'percent'" class="flex justify-between"><span class="text-slate-500">Split</span>
+        <span class="font-semibold" :class="bill.percent_total === 100 ? 'text-emerald-600' : 'text-rose-500'">By percentage{{ bill.percent_total === 100 ? ' ✓' : ' · ' + bill.percent_total + '% set' }}</span>
+      </div>
+      <div v-else class="flex justify-between"><span class="text-slate-500">Fully assigned</span>
         <span class="font-semibold" :class="d.unassigned_count ? 'text-rose-500' : 'text-emerald-600'">{{ d.unassigned_count ? peso(d.unassigned) + ' left' : 'Yes ✓' }}</span>
       </div>
     </div>
@@ -223,6 +238,11 @@ Setlo.mount({
     payDraftTotal() { return Math.round(Object.values(this.payDraft).reduce((s, v) => s + (parseFloat(v) || 0), 0) * 100) / 100; },
     payDraftOk() { return Math.abs(this.payDraftTotal - this.d.total) < 0.005; },
     canEdit() { return this.d.me.is_creator && !this.bill.locked; },
+    /** Another member's open debt that I could pay for them (guests' debts are the creator's own to pay). */
+    canCover() {
+      return (s) => s.from.id !== this.me && s.to.id !== this.me && ['pending', 'awaiting'].includes(s.status) && s.remaining > 0
+        && !(s.from.is_guest && this.d.me.is_creator);
+    },
     owedToPayer() {
       return this.d.members.filter((m) => m.id !== this.bill.payer_id).reduce((s, m) => s + (this.d.shares[m.id] || 0), 0);
     },

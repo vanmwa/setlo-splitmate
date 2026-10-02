@@ -93,7 +93,7 @@ Setlo.mount({
   },
   methods: {
     assignedLabel(it) {
-      if (!it.who.length) return 'Unassigned';
+      if (!it.who.length) return this.bill.split_mode === 'percent' ? 'Split by percentage' : 'Unassigned';
       if (it.who.length === this.d.members.length && this.d.members.length > 2) return 'Split equally';
       return 'Assigned to: ' + it.who.map((id) => this.memberMap[id].first).join(', ');
     },

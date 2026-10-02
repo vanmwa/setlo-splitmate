@@ -34,15 +34,28 @@ require __DIR__ . '/../partials/head.php';
       <status-pill :status="s.status"></status-pill>
     </div>
 
-    <div v-if="s.payment_ref || s.has_proof || s.settle_method" class="tile -mt-2 mb-5 flex items-center justify-between gap-3 p-3.5 text-[13px]">
-      <span class="min-w-0 text-slate-600">
-        <b v-if="s.settle_method" class="block text-slate-800">{{ { online: 'Paid online via PayMongo', transfer: 'Paid by transfer', cash: 'Paid in cash, in person' }[s.settle_method] }}</b>
-        <span class="break-all">{{ s.payment_ref ? 'Ref no. ' + s.payment_ref : (s.has_proof ? 'Proof of payment attached' : '') }}</span>
-      </span>
-      <button v-if="s.has_proof && (s.from.id === me || s.to.id === me)" @click="proof = true" class="font-bold text-brand-700">View proof</button>
+    <div class="tile -mt-2 mb-5 space-y-1 p-3.5 text-[13px]">
+      <div class="flex justify-between"><span class="text-slate-500">Owed when settling started</span><span class="font-semibold">{{ peso(s.principal) }}</span></div>
+      <div v-if="s.interest_added > 0" class="flex justify-between"><span class="text-slate-500">Interest added ({{ s.interest_rate }}% per partial payment)</span><span class="font-semibold text-amber-700">+{{ peso(s.interest_added) }}</span></div>
+      <div class="flex justify-between"><span class="text-slate-500">Paid</span><span class="font-semibold text-emerald-700">{{ peso(s.paid_amount) }}</span></div>
+      <div class="flex justify-between border-t border-slate-100 pt-1"><span class="font-bold text-ink">Left to pay</span><span class="font-extrabold">{{ peso(s.remaining) }}</span></div>
     </div>
-    <div v-if="proof" class="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-6" @click="proof = false">
-      <img :src="'<?= h(url('api/settlements.php')) ?>?proof=' + s.id" alt="Proof of payment" class="max-h-[80vh] max-w-full rounded-2xl bg-white shadow-2xl" />
+
+    <template v-if="s.payments.length">
+      <p class="section-label">PAYMENTS</p>
+      <div class="mb-5 space-y-2">
+        <div v-for="p in s.payments" :key="p.id" class="tile flex items-center justify-between gap-3 p-3 text-[13px]">
+          <span class="min-w-0 text-slate-600">
+            <b class="text-slate-800">{{ peso(p.amount) }}</b> · {{ methodName[p.method] }} · {{ statusName[p.status] }}
+            <span v-if="p.paid_by.id !== s.from.id" class="block text-[12px]">Paid by {{ who(p.paid_by) }}{{ p.pay_back ? ', to be paid back' : '' }}</span>
+            <span class="block break-all text-[12px] text-slate-400">{{ fmtDateTime(p.created_at) }}{{ p.payment_ref ? ' · Ref no. ' + p.payment_ref : '' }}</span>
+          </span>
+          <button v-if="p.has_proof && [s.from.id, s.to.id, p.paid_by.id].includes(me)" @click="proof = p.id" class="shrink-0 font-bold text-brand-700">View proof</button>
+        </div>
+      </div>
+    </template>
+    <div v-if="proof" class="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-6" @click="proof = null">
+      <img :src="'<?= h(url('api/settlements.php')) ?>?payment_proof=' + proof" alt="Proof of payment" class="max-h-[80vh] max-w-full rounded-2xl bg-white shadow-2xl" />
     </div>
 
     <ol class="relative pl-6">
@@ -81,12 +94,18 @@ require __DIR__ . '/../partials/head.php';
 <script>
 Setlo.mount({
   data: () => ({
-    id: <?= $sid ?>, me: <?= (int) $user['id'] ?>, loading: true, s: null, events: [], others: [], proof: false,
-    labels: { created: 'Settlement Created', marked_paid: 'Marked as Paid', confirmed: 'Confirmed Received', disputed: 'Rejected / Disputed', resent: 'Reopened by Sender', nudged: 'Reminder Sent' },
+    id: <?= $sid ?>, me: <?= (int) $user['id'] ?>, loading: true, s: null, events: [], others: [], proof: null,
+    labels: {
+      created: 'Settlement Created', marked_paid: 'Marked as Paid', confirmed: 'Confirmed Received', disputed: 'Rejected / Disputed',
+      resent: 'Reopened by Sender', nudged: 'Reminder Sent', interest: 'Interest Added', covered: 'Paid by Someone Else',
+    },
     styles: {
       created: 'bg-brand-600 ring-brand-100', marked_paid: 'bg-amber-500 ring-amber-100', confirmed: 'bg-emerald-500 ring-emerald-100',
       disputed: 'bg-red-500 ring-red-100', resent: 'bg-sky-500 ring-sky-100', nudged: 'bg-slate-500 ring-slate-100',
+      interest: 'bg-orange-500 ring-orange-100', covered: 'bg-violet-500 ring-violet-100',
     },
+    methodName: { online: 'Online (PayMongo)', transfer: 'Transfer', cash: 'Cash' },
+    statusName: { awaiting: 'waiting for confirmation', confirmed: 'received', rejected: 'rejected' },
   }),
   async mounted() {
     await Setlo.load(this, 'settlements.php', { id: this.id }, (r) => {

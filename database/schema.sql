@@ -5,7 +5,7 @@ CREATE DATABASE IF NOT EXISTS setlo CHARACTER SET utf8mb4 COLLATE utf8mb4_unicod
 USE setlo;
 
 SET FOREIGN_KEY_CHECKS = 0;
-DROP TABLE IF EXISTS login_attempts, notifications, settlement_events, settlements, item_assignments, receipt_items, receipt_photos, receipts, bill_payments, bill_members, bills, users;
+DROP TABLE IF EXISTS login_attempts, notifications, settlement_events, settlement_payments, settlements, item_assignments, receipt_items, receipt_photos, receipts, bill_payments, bill_members, bills, users;
 SET FOREIGN_KEY_CHECKS = 1;
 
 CREATE TABLE users (
@@ -35,6 +35,8 @@ CREATE TABLE bills (
   tax             DECIMAL(10,2) NOT NULL DEFAULT 0,
   service_charge  DECIMAL(10,2) NOT NULL DEFAULT 0,
   discount        DECIMAL(10,2) NOT NULL DEFAULT 0,  -- discount printed on the receipt (Senior/PWD, promo), deducted from the total
+  split_mode      ENUM('items','percent') NOT NULL DEFAULT 'items',  -- percent: each member pays bill_members.percent of the total
+  interest_rate   DECIMAL(5,2) NULL,              -- set by the creator at settling: % added to what's left after each partial payment
   receipt_total   DECIMAL(10,2) NULL,             -- total printed on the receipt, for the match check
   receipt_image   VARCHAR(255) NULL,              -- legacy single photo; photos now live in receipt_photos
   ocr_raw         MEDIUMTEXT NULL,                -- text of the first receipt (its first line names the place in Stats)
@@ -52,6 +54,7 @@ CREATE TABLE bill_members (
   bill_id   INT UNSIGNED NOT NULL,
   user_id   INT UNSIGNED NOT NULL,
   discount_type ENUM('none','senior','pwd') NOT NULL DEFAULT 'none',  -- receives the receipt discount first
+  percent   DECIMAL(5,2) NULL,                    -- share of the whole bill when bills.split_mode = 'percent'
   joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (bill_id, user_id),
   FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE,
@@ -132,16 +135,20 @@ CREATE TABLE item_assignments (
   FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB;
 
--- pending → awaiting (sender marked paid) → settled (receiver confirmed)
---                                        ↘ disputed (receiver rejected) → pending (sender resends)
+-- Paid in one or more parts (settlement_payments). Status follows the parts:
+-- pending (something left to pay) → awaiting (a part waits for the receiver) → settled (nothing left)
+--                                 ↘ disputed (receiver rejected a part) → pending (sender resends)
 CREATE TABLE settlements (
   id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   bill_id         INT UNSIGNED NOT NULL,
   from_user_id    INT UNSIGNED NOT NULL,
   to_user_id      INT UNSIGNED NOT NULL,
-  amount          DECIMAL(10,2) NOT NULL,
+  principal       DECIMAL(10,2) NULL,             -- what was owed when settling started (NULL on old rows: = amount)
+  amount          DECIMAL(10,2) NOT NULL,         -- what is owed in all: principal + interest added so far
+  paid_amount     DECIMAL(10,2) NOT NULL DEFAULT 0, -- confirmed payments so far
+  interest_rate   DECIMAL(5,2) NULL,              -- % of what's left, added after each partial payment
   status          ENUM('pending','awaiting','settled','disputed') NOT NULL DEFAULT 'pending',
-  settle_method   ENUM('online','transfer','cash') NULL, -- online = PayMongo checkout, transfer = ref/screenshot, cash = receiver settled in person
+  settle_method   ENUM('online','transfer','cash','mixed') NULL, -- how it was paid: online = PayMongo, transfer = ref/screenshot, cash = receiver settled in person
   paid_at         DATETIME NULL,
   confirmed_at    DATETIME NULL,
   disputed_at     DATETIME NULL,
@@ -161,11 +168,32 @@ CREATE TABLE settlement_events (
   id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   settlement_id  INT UNSIGNED NOT NULL,
   actor_id       INT UNSIGNED NULL,
-  event          ENUM('created','marked_paid','confirmed','disputed','resent','nudged') NOT NULL,
+  event          ENUM('created','marked_paid','confirmed','disputed','resent','nudged','interest','covered') NOT NULL,
   note           VARCHAR(500) NULL,
   created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (settlement_id) REFERENCES settlements(id) ON DELETE CASCADE,
   FOREIGN KEY (actor_id)      REFERENCES users(id)
+) ENGINE=InnoDB;
+
+-- Each payment towards a settlement. paid_by is usually the debtor, or someone paying on their behalf.
+-- started (online checkout opened, not paid yet) · awaiting (receiver to confirm) · confirmed · rejected
+CREATE TABLE settlement_payments (
+  id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  settlement_id    INT UNSIGNED NOT NULL,
+  paid_by          INT UNSIGNED NOT NULL,
+  amount           DECIMAL(10,2) NOT NULL,
+  method           ENUM('online','transfer','cash') NOT NULL,
+  status           ENUM('started','awaiting','confirmed','rejected') NOT NULL DEFAULT 'awaiting',
+  payment_ref      VARCHAR(60) NULL,
+  proof_image      VARCHAR(255) NULL,             -- uploads/proofs
+  paymongo_session VARCHAR(80) NULL,
+  pay_back         TINYINT(1) NOT NULL DEFAULT 0, -- paid for someone else, who then owes paid_by (a new settlement on confirm)
+  reject_reason    VARCHAR(500) NULL,
+  created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  confirmed_at     DATETIME NULL,
+  FOREIGN KEY (settlement_id) REFERENCES settlements(id) ON DELETE CASCADE,
+  FOREIGN KEY (paid_by)       REFERENCES users(id),
+  INDEX (status)
 ) ENGINE=InnoDB;
 
 -- Failed sign-in attempts, for throttling password guessing (see api/auth.php).

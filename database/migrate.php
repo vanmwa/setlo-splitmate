@@ -67,6 +67,25 @@ $steps = [
     'ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS receipt_id INT UNSIGNED NULL AFTER bill_id',
     'ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS dup_note VARCHAR(160) NULL AFTER suggestion',
     'ALTER TABLE receipt_items ADD CONSTRAINT receipt_items_receipt_fk FOREIGN KEY IF NOT EXISTS (receipt_id) REFERENCES receipts(id) ON DELETE CASCADE',
+    // Payment tally: percentage split, installments with interest, partial payments, paying for someone else
+    "ALTER TABLE bills ADD COLUMN IF NOT EXISTS split_mode ENUM('items','percent') NOT NULL DEFAULT 'items' AFTER discount",
+    'ALTER TABLE bills ADD COLUMN IF NOT EXISTS interest_rate DECIMAL(5,2) NULL AFTER split_mode',
+    'ALTER TABLE bill_members ADD COLUMN IF NOT EXISTS percent DECIMAL(5,2) NULL AFTER discount_type',
+    'ALTER TABLE settlements ADD COLUMN IF NOT EXISTS principal DECIMAL(10,2) NULL AFTER to_user_id',
+    'ALTER TABLE settlements ADD COLUMN IF NOT EXISTS paid_amount DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER amount',
+    'ALTER TABLE settlements ADD COLUMN IF NOT EXISTS interest_rate DECIMAL(5,2) NULL AFTER paid_amount',
+    "ALTER TABLE settlements MODIFY settle_method ENUM('online','transfer','cash','mixed') NULL",
+    "ALTER TABLE settlement_events MODIFY event ENUM('created','marked_paid','confirmed','disputed','resent','nudged','interest','covered') NOT NULL",
+    "CREATE TABLE IF NOT EXISTS settlement_payments (
+       id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, settlement_id INT UNSIGNED NOT NULL, paid_by INT UNSIGNED NOT NULL,
+       amount DECIMAL(10,2) NOT NULL, method ENUM('online','transfer','cash') NOT NULL,
+       status ENUM('started','awaiting','confirmed','rejected') NOT NULL DEFAULT 'awaiting',
+       payment_ref VARCHAR(60) NULL, proof_image VARCHAR(255) NULL, paymongo_session VARCHAR(80) NULL,
+       pay_back TINYINT(1) NOT NULL DEFAULT 0, reject_reason VARCHAR(500) NULL,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, confirmed_at DATETIME NULL,
+       FOREIGN KEY (settlement_id) REFERENCES settlements(id) ON DELETE CASCADE,
+       FOREIGN KEY (paid_by) REFERENCES users(id), INDEX (status)
+     ) ENGINE=InnoDB",
 ];
 foreach ($steps as $sql) {
     db()->exec($sql);
@@ -96,6 +115,30 @@ foreach ($legacy as $b) {
 }
 if ($legacy) {
     echo 'Moved ' . count($legacy) . " scanned receipt(s) into the receipts table.\n";
+}
+
+// Settlements from before partial payments: each was paid in one go, so record that one payment.
+q('UPDATE settlements SET principal = amount WHERE principal IS NULL');
+q("UPDATE settlements SET paid_amount = amount WHERE status = 'settled' AND paid_amount = 0");
+$paidOnce = db()->query(
+    "SELECT * FROM settlements s WHERE (s.status IN ('awaiting','settled','disputed') OR s.paymongo_session IS NOT NULL)
+     AND NOT EXISTS (SELECT 1 FROM settlement_payments p WHERE p.settlement_id = s.id)"
+)->fetchAll();
+foreach ($paidOnce as $s) {
+    $status = ['awaiting' => 'awaiting', 'settled' => 'confirmed', 'disputed' => 'rejected', 'pending' => 'started'][$s['status']];
+    $method = $s['settle_method'] ?? ($s['status'] === 'pending' ? 'online' : 'transfer');
+    if ($method === 'mixed') {
+        $method = 'transfer';
+    }
+    q(
+        'INSERT INTO settlement_payments (settlement_id, paid_by, amount, method, status, payment_ref, proof_image, paymongo_session, reject_reason, created_at, confirmed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [$s['id'], $s['from_user_id'], $s['amount'], $method, $status, $s['payment_ref'], $s['proof_image'], $s['paymongo_session'],
+         $status === 'rejected' ? $s['dispute_reason'] : null, $s['paid_at'] ?? $s['created_at'], $s['confirmed_at']]
+    );
+}
+if ($paidOnce) {
+    echo 'Recorded ' . count($paidOnce) . " earlier settlement payment(s) as payment parts.\n";
 }
 
 // Give every real account (not guests) its own Pay-me code.

@@ -197,10 +197,10 @@ OpenCV.js (~9 MB) loads from `cdn.jsdelivr.net` only when the camera opens; the 
 Spotting a *near*-identical photo (re-saved, resized) needs PHP's GD extension — `php-gd` from step 2 on the server; on XAMPP, remove the `;` before `extension=gd` in `php\php.ini` and restart Apache. Without it, only exact copies of a photo are caught.
 
 ### Part 3 — Payment tally
-- [ ] Partial payments, each by its own method (e.g. half online, half cash)
-- [ ] Installments: the bill creator can turn on interest — a % added to the remaining balance after each partial payment
-- [ ] Percentage split of the whole bill (instead of by items)
-- [ ] Pay for another member's settlement, with "They'll pay me back" to turn it into a new debt
+- [x] Partial payments, each by its own method (e.g. half online, half cash)
+- [x] Installments: the bill creator can turn on interest — a % added to the remaining balance after each partial payment
+- [x] Percentage split of the whole bill (instead of by items)
+- [x] Pay for another member's settlement, with "They'll pay me back" to turn it into a new debt
 
 ## Updating later
 

@@ -18,7 +18,7 @@ if (!$u || $u['status'] !== 'active') {
 }
 
 $owe = q(
-    "SELECT s.id, s.amount, s.status, b.name AS bill_name, b.id AS bill_id FROM settlements s JOIN bills b ON b.id = s.bill_id
+    "SELECT s.id, s.amount - s.paid_amount AS amount, s.status, b.name AS bill_name, b.id AS bill_id FROM settlements s JOIN bills b ON b.id = s.bill_id
      WHERE s.from_user_id = ? AND s.to_user_id = ? AND s.status <> 'settled' ORDER BY s.created_at",
     [$me['id'], $u['id']]
 )->fetchAll();
