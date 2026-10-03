@@ -164,7 +164,6 @@ require __DIR__ . '/../partials/head.php';
         <span class="text-slate-400">%</span>
       </div>
       <p v-if="plan.length && interestOn && interestError" class="field-error px-1">{{ interestError }}</p>
-      <p v-else-if="plan.length && interestOn" class="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[12px] leading-snug text-amber-800">{{ interestExample }}</p>
       <div class="mt-5 grid grid-cols-2 gap-3">
         <button @click="confirming = false" class="btn-pill btn-pill-soft">Back</button>
         <button @click="send" class="btn-pill btn-pill-primary" :disabled="busy">Start settling</button>
@@ -229,13 +228,6 @@ Setlo.mount({
       if (this.pctOk) return 'Adds up to 100% ✓';
       const gap = Math.round(Math.abs(100 - this.pctTotal) * 100) / 100;
       return `Adds up to ${this.pctTotal}% — make it 100% (${this.pctTotal < 100 ? gap + '% left' : gap + '% too much'})`;
-    },
-    /** The rate in pesos, on the biggest debt in the plan: "For example, Ben owes ₱372.00. Pay ₱186.00 … ₱195.30 stays to pay." */
-    interestExample() {
-      if (!this.plan.length) return '';
-      const t = this.plan.reduce((a, b) => (b.amount > a.amount ? b : a));
-      const who = t.from === this.me ? 'you owe' : this.nameOf(t.from) + ' owes';
-      return `For example, ${who} ${this.peso(t.amount)}. ` + this.installmentExample(t.amount, parseFloat(this.interestRate));
     },
     interestError() {
       const r = parseFloat(this.interestRate);

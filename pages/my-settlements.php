@@ -56,7 +56,6 @@ require __DIR__ . '/../partials/head.php';
       </div>
       <div v-if="s.interest_rate" class="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-[11px] leading-snug text-amber-800">
         <p><b>Installments:</b> each partial payment adds {{ s.interest_rate }}% of what's left<span v-if="s.interest_added > 0"> · {{ peso(s.interest_added) }} interest so far</span>.</p>
-        <p v-if="s.status !== 'settled' && s.open > 0" class="mt-0.5">e.g. {{ installmentExample(s.open, s.interest_rate) }}</p>
       </div>
 
       <div v-if="s.status === 'disputed'" class="mt-2.5 rounded-lg bg-red-50 px-3 py-2">
@@ -180,10 +179,16 @@ require __DIR__ . '/../partials/head.php';
         <button v-if="paying.open >= 2" type="button" @click="setAmount(Math.round(paying.open * 50) / 100)" class="pill border border-slate-200 bg-white !px-2.5 !py-1 !text-[12px] text-slate-600">Half {{ peso(Math.round(paying.open * 50) / 100) }}</button>
       </div>
       <p v-if="err('amount')" class="field-error">{{ err('amount') }}</p>
-      <p v-else-if="paying.interest_rate && money(payAmount) > 0" class="mt-2 rounded-lg px-3 py-2 text-[12px] leading-snug" :class="isPart ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'">
-        {{ installmentExample(paying.open, paying.interest_rate, money(payAmount)) }}<template v-if="isPart"> The interest is added once {{ paying.to.id === me ? 'you confirm' : paying.to.first + ' confirms' }} this part.</template>
-      </p>
-      <p v-else-if="isPart" class="mt-2 text-[12px] text-slate-500">A part: {{ peso(leftAfter) }} stays to pay — by any method, later.</p>
+
+      <!-- Billing preview for this amount (mirrors confirm_payment() in includes/payments.php) -->
+      <div v-if="preview" class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-[13px] tabular-nums" aria-live="polite">
+        <div class="flex justify-between"><span class="text-slate-500">Current balance</span><span>{{ peso(preview.balance) }}</span></div>
+        <div v-if="preview.waiting > 0" class="flex justify-between"><span class="text-slate-500">Waiting for confirmation</span><span>−{{ peso(preview.waiting) }}</span></div>
+        <div class="flex justify-between"><span class="text-slate-500">This payment</span><span>−{{ peso(preview.pay) }}</span></div>
+        <div class="flex justify-between"><span class="text-slate-500">After payment</span><span>{{ peso(preview.after) }}</span></div>
+        <div v-if="paying.interest_rate" class="flex justify-between"><span class="text-slate-500">Installment fee ({{ paying.interest_rate }}%)</span><span :class="preview.fee > 0 ? 'text-amber-700' : ''">{{ peso(preview.fee) }}</span></div>
+        <div class="mt-2 flex justify-between border-t border-slate-300 pt-2 font-extrabold text-ink"><span>Next amount due</span><span>{{ peso(preview.next) }}</span></div>
+      </div>
 
       <label v-if="covering" class="mt-4 flex items-start gap-2.5 rounded-2xl bg-slate-50 px-3.5 py-3 text-[12.5px] leading-snug text-slate-600">
         <input type="checkbox" v-model="payBack" class="mt-0.5 h-4 w-4 shrink-0 accent-brand-600" />
@@ -236,9 +241,6 @@ require __DIR__ . '/../partials/head.php';
         <input id="cash" data-field="amount" :value="payAmount" @input="payAmount = filterMoney($event.target.value); $event.target.value = payAmount; touch('amount')" :class="{ 'is-invalid': err('amount') }" class="input-soft flex-1" inputmode="decimal" aria-label="Cash amount received" />
       </div>
       <p v-if="err('amount')" class="field-error">{{ err('amount') }}</p>
-      <p v-else-if="cashing.interest_rate && money(payAmount) > 0" class="mt-2 rounded-lg px-3 py-2 text-[12px] leading-snug" :class="isPart ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'">
-        {{ installmentExample(cashing.open, cashing.interest_rate, money(payAmount)) }}
-      </p>
       <p v-else-if="isPart" class="mt-2 text-[12px] text-slate-500">{{ peso(leftAfter) }} stays to pay.</p>
       <div class="mt-5 grid grid-cols-2 gap-2.5">
         <button type="button" @click="cashing = null" class="btn-pill btn-pill-soft">Cancel</button>
@@ -296,6 +298,20 @@ Setlo.mount({
     /** The settlement in the open sheet (pay or cash). */
     current() { return this.paying || this.cashing; },
     isPart() { return !!this.current && money(this.payAmount) > 0 && money(this.payAmount) < this.current.open; },
+    /**
+     * The Pay sheet's billing preview, in pesos: balance, minus parts already on their way and this payment, plus the
+     * installment fee on what's left (rate % of it, to the centavo, as confirm_payment() adds it once this part is confirmed).
+     */
+    preview() {
+      const s = this.paying;
+      const pay = Math.round(money(this.payAmount) * 100);
+      if (!s || !(pay > 0) || pay > Math.round(s.open * 100)) return null;
+      const balance = Math.round(s.remaining * 100);
+      const waiting = balance - Math.round(s.open * 100);
+      const after = balance - waiting - pay;
+      const fee = s.interest_rate && after > 0 ? Math.round((after * s.interest_rate) / 100) : 0;
+      return { balance: balance / 100, waiting: waiting / 100, pay: pay / 100, after: after / 100, fee: fee / 100, next: (after + fee) / 100 };
+    },
     leftAfter() { return this.current ? Math.round((this.current.open - money(this.payAmount)) * 100) / 100 : 0; },
     // PayMongo takes nothing below its minimum, even when that's all that's left.
     tooSmallOnline() { return !!this.paying && Math.round(money(this.payAmount) * 100) < this.online.min; },

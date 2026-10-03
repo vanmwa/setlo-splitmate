@@ -506,13 +506,8 @@ function start_settling(array $bill, array $actor, ?float $interestRate = null):
             q('INSERT INTO settlements (bill_id, from_user_id, to_user_id, principal, amount, interest_rate) VALUES (?, ?, ?, ?, ?, ?)', [$bill['id'], $from, $to, pesos($c), pesos($c), $interestRate]);
             $sid = (int) $pdo->lastInsertId();
             log_event($sid, $actor['id'], 'created', 'Generated from ' . $bill['name'] . ' balances.');
-            // The rate also in pesos (paying about half first), since a bare % is hard to picture.
-            $half = (int) round($c / 200) * 100;
-            $example = $interestRate && $half > 0 && $half < $c
-                ? ' Paying in parts adds ' . (0 + $interestRate) . "% of what's left each time — e.g. pay " . peso_str($half) . ' now and '
-                  . peso_str((int) round(($c - $half) * $interestRate / 100)) . ' is added to the ' . peso_str($c - $half) . ' left.'
-                : '';
-            notify($from, 'settling', "You owe {$names[$to]} " . peso_str($c) . " for {$bill['name']}.$example", 'my-settlements');
+            notify($from, 'settling', "You owe {$names[$to]} " . peso_str($c) . " for {$bill['name']}."
+                . ($interestRate ? ' Paying in parts adds ' . (0 + $interestRate) . "% of what's left each time." : ''), 'my-settlements');
         }
         foreach (array_unique(array_column($plan['transfers'], 1)) as $to) {
             notify($to, 'settling', "{$bill['name']} is now settling — you'll be asked to confirm each payment.", 'bill-detail?bill=' . $bill['id']);

@@ -299,22 +299,6 @@
     </div>`,
   };
 
-  /**
-   * Installment interest said in pesos, since a bare "5%" is hard to picture: "Pay ₱186.00 of ₱372.00 now and
-   * ₱186.00 is left; 5% of it (₱9.30) is added, so ₱195.30 stays to pay." pay defaults to about half, to the peso.
-   * Mirrors confirm_payment() in includes/payments.php (interest = rate % of what's left, to the centavo).
-   */
-  function installmentExample(open, rate, pay) {
-    const o = Math.round(Number(open) * 100);
-    const r = Number(rate);
-    if (!(o > 0) || !(r > 0)) return '';
-    const p = pay === undefined || pay === null ? Math.round(o / 200) * 100 : Math.round(Number(pay) * 100);
-    if (!(p > 0) || p >= o) return p >= o ? `Paying all ${peso(o / 100)} at once adds no interest.` : '';
-    const left = o - p;
-    const interest = Math.round((left * r) / 100);
-    return `Pay ${peso(p / 100)} of ${peso(o / 100)} now and ${peso(left / 100)} is left; ${r}% of it (${peso(interest / 100)}) is added, so ${peso((left + interest) / 100)} stays to pay.`;
-  }
-
   /** What to call a receipt: its title, else the store, else "Receipt 2". */
   const receiptLabel = (rc) => rc.title || rc.store || 'Receipt ' + rc.number;
 
@@ -332,7 +316,7 @@
     return groups.filter((g) => g.items.length);
   }
 
-  const helpers = { peso, pesoShort, timeAgo, fmtDate, fmtDateTime, fmtMonth, toast, installmentExample, receiptLabel, statusLabel: (s) => STATUS_LABELS[s] || s };
+  const helpers = { peso, pesoShort, timeAgo, fmtDate, fmtDateTime, fmtMonth, toast, receiptLabel, statusLabel: (s) => STATUS_LABELS[s] || s };
 
   /** Create and mount a page's Vue app with the shared components and helpers. */
   function mount(options, selector) {
