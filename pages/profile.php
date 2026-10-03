@@ -25,6 +25,36 @@ require __DIR__ . '/../partials/head.php';
   <spinner v-if="loading"></spinner>
   <div v-else class="flex-1 space-y-5 px-5 pb-6 pt-5">
 
+    <!-- Money owed to me, and unfinished installments -->
+    <div v-if="money" class="tile p-4">
+      <div class="grid grid-cols-2 gap-3">
+        <div class="rounded-2xl bg-emerald-50 px-3.5 py-3">
+          <p class="text-[11px] font-bold uppercase tracking-wide text-emerald-700">Owed to you</p>
+          <p class="mt-0.5 text-[20px] font-extrabold tabular-nums text-emerald-800">{{ peso(money.owed_to_me) }}</p>
+          <p class="text-[11.5px] text-emerald-700/80">{{ money.people.length ? 'from ' + money.people.length + (money.people.length > 1 ? ' people' : ' person') : 'nobody owes you' }}</p>
+        </div>
+        <div class="rounded-2xl bg-slate-50 px-3.5 py-3">
+          <p class="text-[11px] font-bold uppercase tracking-wide text-slate-500">You owe</p>
+          <p class="mt-0.5 text-[20px] font-extrabold tabular-nums text-ink">{{ peso(money.i_owe) }}</p>
+          <a href="my-settlements" class="text-[11.5px] font-semibold text-brand-700">Settle up →</a>
+        </div>
+      </div>
+      <p v-if="money.installments" class="mt-3 rounded-xl bg-amber-50 px-3.5 py-2.5 text-[12.5px] text-amber-800">
+        <b>{{ peso(money.installment_owed) }}</b> still unpaid on {{ money.installments }} installment{{ money.installments > 1 ? 's' : '' }} owed to you.
+      </p>
+      <div v-if="money.people.length" class="mt-3 divide-y divide-slate-100">
+        <button v-for="u in money.people" :key="u.id" @click="showPerson(u.id)" class="flex w-full items-center gap-3 py-2.5 text-left">
+          <avatar :user="u" :size="32"></avatar>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-[13.5px] font-semibold text-ink">{{ u.name }}</span>
+            <span v-if="u.installments" class="text-[11.5px] font-semibold text-amber-700">{{ u.installments }} unfinished installment{{ u.installments > 1 ? 's' : '' }} · {{ peso(u.installment_owed) }}</span>
+          </span>
+          <span class="text-[14px] font-extrabold tabular-nums text-ink">{{ peso(u.owed) }}</span>
+          <svg class="h-4 w-4 text-slate-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+    </div>
+
     <!-- Payment details -->
     <form class="tile space-y-4 p-4" @submit.prevent="saveProfile" novalidate>
       <div>
@@ -102,7 +132,7 @@ require __DIR__ . '/../partials/head.php';
 Setlo.mount({
   mixins: [Setlo.validation],
   data: () => ({
-    loading: true, busy: false, p: null, canShare: !!navigator.share,
+    loading: true, busy: false, p: null, money: null, canShare: !!navigator.share,
     f: { full_name: '', payment_method: 'GCash', payment_account: '' },
     pw: { current: '', new: '', confirm: '' }, serverErrors: {},
   }),
@@ -117,9 +147,10 @@ Setlo.mount({
     qr() { return this.p ? Setlo.qrSvg(this.payUrl) : ''; },
   },
   async mounted() {
-    await Setlo.load(this, 'profile.php', null, (r) => { this.set(r.profile); });
+    await Setlo.load(this, 'profile.php', null, (r) => { this.set(r.profile); this.money = r.money || null; });
   },
   methods: {
+    showPerson(id) { Setlo.showPerson(id); },
     validators() {
       return {
         full_name: V.name(this.f.full_name, 'Full name'),

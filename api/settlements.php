@@ -51,6 +51,20 @@ if (method() === 'GET') {
         serve_upload('proofs', $p ? $p['proof_image'] : $s['proof_image']);
     }
 
+    if (isset($_GET['receipt'])) {
+        // The receipt of one received payment: the same people who may see its proof may see its receipt.
+        $p = q("SELECT * FROM settlement_payments WHERE id = ? AND status = 'confirmed'", [int_param('receipt')])->fetch();
+        if (!$p) {
+            fail('There’s no receipt for this payment yet — it hasn’t been received.', 404);
+        }
+        $s = load_settlement((int) $p['settlement_id'], $me);
+        $actsForGuest = $s['from_role'] === 'guest' && (int) $s['bill_creator_id'] === $me['id'];
+        if ($me['role'] !== 'admin' && !$actsForGuest && !in_array($me['id'], [(int) $s['from_user_id'], (int) $s['to_user_id'], (int) $p['paid_by']], true)) {
+            fail('Only the people in this payment can see its receipt.', 403);
+        }
+        json_ok(['receipt' => payment_receipt($p, $s)]);
+    }
+
     if (isset($_GET['id'])) {
         $s = load_settlement(int_param('id'), $me);
         $events = q(

@@ -35,9 +35,9 @@ require __DIR__ . '/../partials/head.php';
     <template v-if="tab === 'members'">
       <div class="tile divide-y divide-slate-100">
         <div v-for="m in d.members" :key="m.id" class="flex items-center gap-3 p-3.5">
-          <avatar :user="m" :size="36"></avatar>
+          <button @click="showPerson(m.id)" class="shrink-0 rounded-full" :aria-label="'About ' + m.name"><avatar :user="m" :size="36"></avatar></button>
           <div class="min-w-0 flex-1">
-            <p class="text-sm font-semibold text-ink">{{ m.name }} <span v-if="m.is_guest" class="pill pill-draft">Guest</span>
+            <p class="text-sm font-semibold text-ink"><button @click="showPerson(m.id)" class="text-left hover:underline">{{ m.name }}</button> <span v-if="m.is_guest" class="pill pill-draft">Guest</span>
               <span v-if="m.id === me || m.id === bill.creator_id" class="text-[10px] font-medium text-brand-600">({{ [m.id === me ? 'You' : '', m.id === bill.creator_id ? 'Creator' : ''].filter(Boolean).join(' · ') }})</span>
             </p>
             <p class="text-xs text-slate-400">
@@ -261,6 +261,7 @@ Setlo.mount({
     });
   },
   methods: {
+    showPerson(id) { Setlo.showPerson(id); },
     async invite(mode) {
       if (mode === 'rotate' && !(await Setlo.confirm({ title: 'Create a new invite link?', text: 'The current link and QR will stop working.', confirmText: 'New link', danger: true }))) return;
       if (mode === 'disable' && !(await Setlo.confirm({ title: 'Turn off the invite link?', text: 'Nobody new can join with it until you create a link again.', confirmText: 'Turn off', danger: true }))) return;

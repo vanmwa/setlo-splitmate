@@ -26,9 +26,9 @@ require __DIR__ . '/../partials/head.php';
   <div v-else class="flex-1 px-5 py-5">
     <div class="tile mb-5 flex items-center justify-between p-3.5">
       <div class="flex items-center gap-2.5">
-        <avatar :user="s.from" :size="32"></avatar>
+        <button @click="showPerson(s.from.id)" class="rounded-full" :aria-label="'About ' + s.from.name"><avatar :user="s.from" :size="32"></avatar></button>
         <svg class="h-4 w-4 text-slate-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-        <avatar :user="s.to" :size="32"></avatar>
+        <button @click="showPerson(s.to.id)" class="rounded-full" :aria-label="'About ' + s.to.name"><avatar :user="s.to" :size="32"></avatar></button>
         <a :href="'bill-detail.php?bill=' + s.bill_id" class="ml-1 text-[13px] font-semibold text-slate-600">{{ s.bill_name }}</a>
       </div>
       <status-pill :status="s.status"></status-pill>
@@ -50,7 +50,10 @@ require __DIR__ . '/../partials/head.php';
             <span v-if="p.paid_by.id !== s.from.id" class="block text-[12px]">Paid by {{ who(p.paid_by) }}{{ p.pay_back ? ', to be paid back' : '' }}</span>
             <span class="block break-all text-[12px] text-slate-400">{{ fmtDateTime(p.created_at) }}{{ p.payment_ref ? ' · Ref no. ' + p.payment_ref : '' }}</span>
           </span>
-          <button v-if="p.has_proof && [s.from.id, s.to.id, p.paid_by.id].includes(me)" @click="proof = p.id" class="shrink-0 font-bold text-brand-700">View proof</button>
+          <span class="flex shrink-0 flex-col items-end gap-1">
+            <button v-if="p.status === 'confirmed'" @click="showReceipt(p.id)" class="font-bold text-brand-700">Receipt</button>
+            <button v-if="p.has_proof && [s.from.id, s.to.id, p.paid_by.id].includes(me)" @click="proof = p.id" class="font-bold text-slate-500">View proof</button>
+          </span>
         </div>
       </div>
     </template>
@@ -114,7 +117,11 @@ Setlo.mount({
       this.others = r.others;
     });
   },
-  methods: { who(u) { return u.id === this.me ? 'You' : u.first; } },
+  methods: {
+    who(u) { return u.id === this.me ? 'You' : u.first; },
+    showReceipt(id) { Setlo.showReceipt(id); },
+    showPerson(id) { Setlo.showPerson(id); },
+  },
 });
 </script>
 <?php require __DIR__ . '/../partials/foot.php'; ?>

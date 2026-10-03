@@ -171,6 +171,46 @@ function settlement_parts(array $settlementIds): array
     return $out;
 }
 
+/** Receipt number shown on a payment's receipt, e.g. SL-000042. */
+function receipt_no(int $paymentId): string
+{
+    return 'SL-' . str_pad((string) $paymentId, 6, '0', STR_PAD_LEFT);
+}
+
+/**
+ * Everything printed on a received payment's receipt. $s is a settlement row with the names joined in
+ * (SETTLEMENT_SELECT in api/settlements.php). "Paid so far" counts received parts up to and including this one.
+ */
+function payment_receipt(array $p, array $s): array
+{
+    $paidSoFar = (int) q(
+        "SELECT COALESCE(SUM(ROUND(amount * 100)), 0) FROM settlement_payments WHERE settlement_id = ? AND status = 'confirmed' AND id <= ?",
+        [$s['id'], $p['id']]
+    )->fetchColumn();
+    $payer = q('SELECT id, full_name, avatar_color, role FROM users WHERE id = ?', [$p['paid_by']])->fetch();
+    return [
+        'no'          => receipt_no((int) $p['id']),
+        'payment_id'  => (int) $p['id'],
+        'received_at' => $p['confirmed_at'] ?? $p['created_at'],
+        'amount'      => (float) $p['amount'],
+        'method'      => $p['method'],
+        'payment_ref' => $p['payment_ref'],
+        'tendered'    => isset($p['tendered']) && $p['tendered'] !== null ? (float) $p['tendered'] : null,
+        'change'      => isset($p['change_given']) && $p['change_given'] !== null ? (float) $p['change_given'] : null,
+        'credit'      => isset($p['credit_kept']) && $p['credit_kept'] !== null ? (float) $p['credit_kept'] : null,
+        'pay_back'    => (bool) $p['pay_back'],
+        'for'         => $s['bill_name'],
+        'kind'        => $s['bill_kind'] ?? 'bill',
+        'from'        => public_user(['id' => $s['from_user_id'], 'full_name' => $s['from_name'], 'avatar_color' => $s['from_color'], 'role' => $s['from_role']]),
+        'to'          => public_user(['id' => $s['to_user_id'], 'full_name' => $s['to_name'], 'avatar_color' => $s['to_color']]),
+        'paid_by'     => public_user($payer),
+        'total_owed'  => (float) $s['amount'],
+        'paid_so_far' => pesos($paidSoFar),
+        'left_now'    => pesos(max(0, cents($s['amount']) - cents($s['paid_amount']))),
+        'settlement_id' => (int) $s['id'],
+    ];
+}
+
 /** settlement_row() plus its parts and what's open to pay now, for a list of settlement rows. */
 function settlement_rows_with_parts(array $rows): array
 {

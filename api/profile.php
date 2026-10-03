@@ -23,8 +23,37 @@ function profile_of(int $userId): array
     ];
 }
 
+/**
+ * Money owed to me (by person, unfinished installments flagged) and what I owe. An installment is a debt being paid
+ * in parts or on an installment plan with interest, not finished yet.
+ */
+function money_stats(int $userId): array
+{
+    $people = q(
+        "SELECT u.id, u.full_name, u.avatar_color, u.role,
+                SUM(s.amount - s.paid_amount) AS owed,
+                SUM(s.paid_amount > 0 OR s.interest_rate IS NOT NULL) AS installments,
+                SUM(CASE WHEN s.paid_amount > 0 OR s.interest_rate IS NOT NULL THEN s.amount - s.paid_amount ELSE 0 END) AS installment_owed
+         FROM settlements s JOIN users u ON u.id = s.from_user_id
+         WHERE s.to_user_id = ? AND s.status <> 'settled' GROUP BY u.id ORDER BY owed DESC",
+        [$userId]
+    )->fetchAll();
+    $iOwe = (float) q("SELECT COALESCE(SUM(amount - paid_amount), 0) FROM settlements WHERE from_user_id = ? AND status <> 'settled'", [$userId])->fetchColumn();
+    return [
+        'owed_to_me'       => pesos(array_sum(array_map(fn ($p) => cents($p['owed']), $people))),
+        'installment_owed' => pesos(array_sum(array_map(fn ($p) => cents($p['installment_owed']), $people))),
+        'installments'     => (int) array_sum(array_column($people, 'installments')),
+        'i_owe'            => round($iOwe, 2),
+        'people'           => array_map(fn ($p) => public_user($p) + [
+            'owed'             => (float) $p['owed'],
+            'installments'     => (int) $p['installments'],
+            'installment_owed' => (float) $p['installment_owed'],
+        ], $people),
+    ];
+}
+
 if (method() === 'GET') {
-    json_ok(['profile' => profile_of($me['id'])]);
+    json_ok(['profile' => profile_of($me['id']), 'money' => money_stats($me['id'])]);
 }
 
 if (method() !== 'POST') {

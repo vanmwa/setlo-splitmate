@@ -36,9 +36,9 @@ require __DIR__ . '/../partials/head.php';
       <div class="space-y-3 lg:grid lg:grid-cols-2 lg:items-start lg:gap-3 lg:space-y-0">
     <div v-for="s in sec.items" :key="s.id" class="tile p-3.5" :class="{ '!border-red-200 ring-1 ring-red-100': s.status === 'disputed', 'tile-muted': s.status === 'settled' }">
       <div class="flex items-start gap-3">
-        <avatar :user="tab === 'owe' ? s.to : s.from" :size="36"></avatar>
+        <button @click="showPerson(other(s).id)" class="shrink-0 rounded-full" :aria-label="'About ' + other(s).name"><avatar :user="other(s)" :size="36"></avatar></button>
         <div class="min-w-0 flex-1">
-          <p class="truncate text-sm font-semibold">{{ tab === 'owe' ? (s.from.is_guest ? s.from.first + ' → ' + s.to.name : 'To ' + s.to.name) : 'From ' + s.from.name }}</p>
+          <button @click="showPerson(other(s).id)" class="block max-w-full truncate text-left text-sm font-semibold hover:underline">{{ tab === 'owe' ? (s.from.is_guest ? s.from.first + ' → ' + s.to.name : 'To ' + s.to.name) : 'From ' + s.from.name }}</button>
           <a :href="'bill-detail.php?bill=' + s.bill_id" class="block truncate text-xs text-slate-400">{{ s.bill_name }}</a>
           <span v-if="s.from.is_guest" class="pill pill-draft mt-1">{{ tab === 'owe' ? 'Guest · you pay for them' : 'Guest' }}</span>
         </div>
@@ -81,7 +81,9 @@ require __DIR__ . '/../partials/head.php';
         <div v-for="p in s.payments" :key="p.id" class="rounded-lg px-3 py-2 text-xs" :class="partStyle[p.status]">
           <div class="flex items-center justify-between gap-2">
             <span class="min-w-0"><b>{{ peso(p.amount) }}</b> · {{ methodName[p.method] }}<span v-if="p.paid_by.id !== s.from.id"> · paid by {{ p.paid_by.id === me ? 'you' : p.paid_by.first }}</span></span>
-            <span class="shrink-0 font-semibold">{{ partLabel(s, p) }}</span>
+            <span class="flex shrink-0 items-center gap-2 font-semibold">{{ partLabel(s, p) }}
+              <button v-if="p.status === 'confirmed'" @click="showReceipt(p.id)" class="font-bold underline">Receipt</button>
+            </span>
           </div>
           <div v-if="p.payment_ref || p.has_proof || p.reject_reason" class="mt-1 flex items-center justify-between gap-2">
             <span class="min-w-0 break-all opacity-80">{{ p.reject_reason ? '“' + p.reject_reason + '”' : p.payment_ref ? 'Ref no. ' + p.payment_ref : '' }}</span>
@@ -96,6 +98,9 @@ require __DIR__ . '/../partials/head.php';
 
       <p v-if="s.status === 'settled'" class="mt-2.5 rounded-lg bg-white px-3 py-2 text-[11px] text-slate-500">
         <b class="text-slate-700">Old record</b> · settled {{ fmtDate(s.confirmed_at || s.paid_at, true) }}<span v-if="s.settle_method"> · {{ methodLabel[s.settle_method] }}</span>
+        <span v-if="received(s).length" class="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+          <button v-for="p in received(s)" :key="p.id" @click="showReceipt(p.id)" class="font-bold text-brand-700">Receipt {{ peso(p.amount) }}</button>
+        </span>
       </p>
 
       <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
@@ -139,9 +144,9 @@ require __DIR__ . '/../partials/head.php';
       <div class="space-y-3 lg:grid lg:grid-cols-2 lg:items-start lg:gap-3 lg:space-y-0">
         <div v-for="s in cover" :key="'c' + s.id" class="tile p-3.5">
           <div class="flex items-center gap-3">
-            <avatar :user="s.from" :size="32"></avatar>
+            <button @click="showPerson(s.from.id)" class="shrink-0 rounded-full" :aria-label="'About ' + s.from.name"><avatar :user="s.from" :size="32"></avatar></button>
             <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-semibold">{{ s.from.first }} → {{ s.to.id === me ? 'you' : s.to.first }}</p>
+              <button @click="showPerson(s.from.id)" class="block max-w-full truncate text-left text-sm font-semibold hover:underline">{{ s.from.first }} → {{ s.to.id === me ? 'you' : s.to.first }}</button>
               <a :href="'bill-detail.php?bill=' + s.bill_id" class="block truncate text-xs text-slate-400">{{ s.bill_name }}</a>
             </div>
             <div class="shrink-0 text-right">
@@ -367,6 +372,11 @@ Setlo.mount({
       const msg = { confirm: 'Payment confirmed ✓', reject: 'Dispute submitted', resend: 'Payment reopened' }[action];
       return this.after(r, msg, action === 'reject' ? 'warn' : 'ok');
     },
+    showPerson(id) { Setlo.showPerson(id); },
+    /** The other person on a card: who I pay, or who pays me. */
+    other(s) { return this.tab === 'owe' ? s.to : s.from; },
+    received(s) { return s.payments.filter((p) => p.status === 'confirmed'); },
+    showReceipt(id) { Setlo.showReceipt(id); },
     confirmPart(s, p) { return this.act(s, 'confirm', { payment_id: p.id }); },
     proofSrc(paymentId) { return '<?= h(url('api/settlements.php')) ?>?payment_proof=' + paymentId; },
     view(title, src) { this.viewer = { title, src }; },

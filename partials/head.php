@@ -34,6 +34,8 @@ header('Cache-Control: no-store');
 <script src="<?= h(url('assets/js/api.js')) ?>?v=<?= @filemtime(__DIR__ . '/../assets/js/api.js') ?>"></script>
 <script src="<?= h(url('assets/js/ui.js')) ?>?v=<?= @filemtime(__DIR__ . '/../assets/js/ui.js') ?>"></script>
 <script src="<?= h(url('assets/js/validate.js')) ?>?v=<?= @filemtime(__DIR__ . '/../assets/js/validate.js') ?>"></script>
+<script src="<?= h(url('assets/js/receipt.js')) ?>?v=<?= @filemtime(__DIR__ . '/../assets/js/receipt.js') ?>"></script>
+<script src="<?= h(url('assets/js/people.js')) ?>?v=<?= @filemtime(__DIR__ . '/../assets/js/people.js') ?>"></script>
 <?php foreach ($headExtra ?? [] as $extra): ?>
 <?php if (str_ends_with($extra, '.woff2')): ?>
 <link rel="preload" href="<?= h(url($extra)) ?>" as="font" type="font/woff2" crossorigin />
