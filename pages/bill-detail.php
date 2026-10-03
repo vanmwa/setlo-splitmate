@@ -254,6 +254,7 @@ Setlo.mount({
   },
   async mounted() {
     await Setlo.load(this, 'bills.php', { id: this.billId }, (r) => {
+      if (r.bill.kind === 'loan') { location.replace('utang'); return; } // an utang has its own page
       this.d = r;
       this.bill = r.bill;
       this.multiPay = r.payments.multi;

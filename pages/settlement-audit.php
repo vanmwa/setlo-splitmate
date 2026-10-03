@@ -29,7 +29,7 @@ require __DIR__ . '/../partials/head.php';
         <button @click="showPerson(s.from.id)" class="rounded-full" :aria-label="'About ' + s.from.name"><avatar :user="s.from" :size="32"></avatar></button>
         <svg class="h-4 w-4 text-slate-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
         <button @click="showPerson(s.to.id)" class="rounded-full" :aria-label="'About ' + s.to.name"><avatar :user="s.to" :size="32"></avatar></button>
-        <a :href="'bill-detail.php?bill=' + s.bill_id" class="ml-1 text-[13px] font-semibold text-slate-600">{{ s.bill_name }}</a>
+        <a :href="s.bill_kind === 'loan' ? 'utang' : 'bill-detail.php?bill=' + s.bill_id" class="ml-1 text-[13px] font-semibold text-slate-600">{{ s.bill_name }}</a>
       </div>
       <status-pill :status="s.status"></status-pill>
     </div>
@@ -107,7 +107,7 @@ Setlo.mount({
       disputed: 'bg-red-500 ring-red-100', resent: 'bg-sky-500 ring-sky-100', nudged: 'bg-slate-500 ring-slate-100',
       interest: 'bg-orange-500 ring-orange-100', covered: 'bg-violet-500 ring-violet-100',
     },
-    methodName: { online: 'Online (PayMongo)', transfer: 'Transfer', cash: 'Cash' },
+    methodName: { online: 'Online (PayMongo)', transfer: 'Transfer', cash: 'Cash', credit: 'Credit (extra cash kept earlier)' },
     statusName: { awaiting: 'waiting for confirmation', confirmed: 'received', rejected: 'rejected' },
   }),
   async mounted() {

@@ -7,13 +7,13 @@
 require __DIR__ . '/../includes/api.php';
 require __DIR__ . '/../includes/uploads.php';
 require __DIR__ . '/../includes/paymongo.php';
-require __DIR__ . '/../includes/payments.php';
+require_once __DIR__ . '/../includes/payments.php';
 
 const NUDGE_COOLDOWN_HOURS = 12;
 
 $me = api_user();
 
-const SETTLEMENT_SELECT = 'SELECT s.*, ' . SETTLEMENT_ONLINE_STARTED . ', b.name AS bill_name, b.creator_id AS bill_creator_id, fu.full_name AS from_name, fu.avatar_color AS from_color, fu.role AS from_role,
+const SETTLEMENT_SELECT = 'SELECT s.*, ' . SETTLEMENT_ONLINE_STARTED . ', b.name AS bill_name, b.kind AS bill_kind, b.creator_id AS bill_creator_id, fu.full_name AS from_name, fu.avatar_color AS from_color, fu.role AS from_role,
     tu.full_name AS to_name, tu.avatar_color AS to_color, tu.payment_method AS to_method, tu.payment_account AS to_account, tu.pay_code AS to_pay_code
     FROM settlements s JOIN bills b ON b.id = s.bill_id
     JOIN users fu ON fu.id = s.from_user_id JOIN users tu ON tu.id = s.to_user_id';
@@ -52,16 +52,13 @@ if (method() === 'GET') {
     }
 
     if (isset($_GET['receipt'])) {
-        // The receipt of one received payment: the same people who may see its proof may see its receipt.
+        // The receipt of one received payment, for anyone on the bill (as its settlements already are; the group
+        // trail lists them). Proof screenshots stay private to the payer and the two sides.
         $p = q("SELECT * FROM settlement_payments WHERE id = ? AND status = 'confirmed'", [int_param('receipt')])->fetch();
         if (!$p) {
             fail('There’s no receipt for this payment yet — it hasn’t been received.', 404);
         }
-        $s = load_settlement((int) $p['settlement_id'], $me);
-        $actsForGuest = $s['from_role'] === 'guest' && (int) $s['bill_creator_id'] === $me['id'];
-        if ($me['role'] !== 'admin' && !$actsForGuest && !in_array($me['id'], [(int) $s['from_user_id'], (int) $s['to_user_id'], (int) $p['paid_by']], true)) {
-            fail('Only the people in this payment can see its receipt.', 403);
-        }
+        $s = load_settlement((int) $p['settlement_id'], $me); // members of the bill (and the app manager) only
         json_ok(['receipt' => payment_receipt($p, $s)]);
     }
 
@@ -244,11 +241,31 @@ switch (input('action', '')) {
         if ($locked['status'] === 'settled') {
             fail('This settlement is already settled.', 409);
         }
-        $cents = part_cents($locked);
-        $pid = add_payment($locked, (int) $s['from_user_id'], $cents, 'cash', 'awaiting');
+        // amount = cash handed over. Beyond what's open, the extra was given back as change or kept as credit.
+        $open = open_cents($locked);
+        if ($open <= 0) {
+            fail('Nothing is left to pay right now — a payment is already waiting for confirmation.', 409);
+        }
+        $raw = input('amount');
+        $tendered = $raw === null || $raw === '' ? $open : cents($raw);
+        if ($tendered < min(100, $open)) {
+            fail('Enter at least ' . peso_str(min(100, $open)) . '.', 422, ['fields' => ['amount' => 'At least ' . peso_str(min(100, $open)) . '.']]);
+        }
+        $cents = min($tendered, $open);
+        $extra = $tendered - $cents;
+        $keep = input('extra', 'change') === 'credit';
+        $over = $extra > 0 ? ['tendered' => $tendered] + ($keep ? ['credit' => $extra] : ['change' => $extra]) : [];
+        $pid = add_payment($locked, (int) $s['from_user_id'], $cents, 'cash', 'awaiting', $over);
         $payer = $debtorName . ($fromGuest ? ' (guest)' : '');
-        log_event($id, $me['id'], 'marked_paid', "$myName received " . part_words($cents, $locked) . " in cash from $payer.");
+        log_event($id, $me['id'], 'marked_paid', "$myName received " . part_words($cents, $locked) . " in cash from $payer"
+            . ($extra > 0 ? ' (handed over ' . peso_str($tendered) . '; ' . peso_str($extra) . ($keep ? ' kept as credit' : ' given back as change') . ')' : '') . '.');
         confirm_payment($locked, ['id' => $pid, 'amount' => pesos($cents), 'paid_by' => $s['from_user_id'], 'pay_back' => 0], $me['id']);
+        if ($extra > 0 && $keep) {
+            add_credit((int) $s['from_user_id'], $me['id'], $extra, $pid);
+            $used = apply_credits((int) $s['from_user_id'], $me['id'], $me['id']);
+            notify((int) $s['from_user_id'], 'confirmed', "$myName kept " . peso_str($extra) . " extra from your cash as credit"
+                . ($used ? ': ' . peso_str($used) . ' already paid your other debt to them' : '') . '. It pays your next debts to them.', 'my-settlements');
+        }
         // Receiving cash ends a dispute about an earlier part.
         if ($locked['status'] === 'disputed') {
             q("UPDATE settlements SET status = 'pending' WHERE id = ? AND status = 'disputed'", [$id]);

@@ -206,9 +206,9 @@ Spotting a *near*-identical photo (re-saved, resized) needs PHP's GD extension â
 - [x] Profile stats: money owed to you, and installments other people haven't finished paying
 - [x] Tap a person (in settlements, bill members, history) to see their card: what you owe each other, their unsettled installments, and your payment history together
 - [x] Every received payment gets an automatic receipt, viewable and savable as an image
-- [ ] Cash paid over the amount: the receiver records the change given back, or keeps the extra as credit that pays down that person's other debts to them
-- [ ] Utang: record money lent or borrowed outside any bill; the other person confirms, then it's paid back like any settlement (parts, methods, installments, proof)
-- [ ] Saved groups: start bills from a group, and one trail of the group's bills, payments and receipts
+- [x] Cash paid over the amount: the receiver records the change given back, or keeps the extra as credit that pays down that person's other debts to them
+- [x] Utang: record money lent or borrowed outside any bill; the other person confirms, then it's paid back like any settlement (parts, methods, installments, proof)
+- [x] Saved groups: start bills from a group, and one trail of the group's bills, payments and receipts
 
 ## Updating later
 

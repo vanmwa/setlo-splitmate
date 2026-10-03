@@ -17,7 +17,7 @@ $sum = function (string $col) use ($me): array {
 
 $bills = q(
     "SELECT b.* FROM bills b JOIN bill_members m ON m.bill_id = b.id
-     WHERE m.user_id = ? AND b.status <> 'closed' ORDER BY b.created_at DESC LIMIT 3",
+     WHERE m.user_id = ? AND b.kind = 'bill' AND b.status <> 'closed' ORDER BY b.created_at DESC LIMIT 3",
     [$me['id']]
 )->fetchAll();
 

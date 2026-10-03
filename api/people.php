@@ -2,7 +2,7 @@
 // A person's card, as seen by me: how to pay them, what we owe each other (unsettled installments first),
 // and the payments between us. Only for people I share a bill with (or a group, once groups exist).
 require __DIR__ . '/../includes/api.php';
-require __DIR__ . '/../includes/payments.php';
+require_once __DIR__ . '/../includes/payments.php';
 
 $me = api_user();
 if (method() !== 'GET') {
@@ -15,14 +15,15 @@ if (!$u) {
     fail('Person not found.', 404);
 }
 $shared = $id === $me['id'] || $me['role'] === 'admin' || q(
-    'SELECT 1 FROM bill_members a JOIN bill_members b ON b.bill_id = a.bill_id WHERE a.user_id = ? AND b.user_id = ? LIMIT 1',
-    [$me['id'], $id]
+    'SELECT 1 FROM bill_members a JOIN bill_members b ON b.bill_id = a.bill_id WHERE a.user_id = ? AND b.user_id = ?
+     UNION SELECT 1 FROM user_group_members a JOIN user_group_members b ON b.group_id = a.group_id WHERE a.user_id = ? AND b.user_id = ? LIMIT 1',
+    [$me['id'], $id, $me['id'], $id]
 )->fetchColumn();
 if (!$shared) {
-    fail('You can only see people you share a bill with.', 403);
+    fail('You can only see people you share a bill or group with.', 403);
 }
 
-$select = 'SELECT s.*, ' . SETTLEMENT_ONLINE_STARTED . ', b.name AS bill_name, b.creator_id AS bill_creator_id, fu.full_name AS from_name, fu.avatar_color AS from_color, fu.role AS from_role,
+$select = 'SELECT s.*, ' . SETTLEMENT_ONLINE_STARTED . ', b.name AS bill_name, b.kind AS bill_kind, b.creator_id AS bill_creator_id, fu.full_name AS from_name, fu.avatar_color AS from_color, fu.role AS from_role,
     tu.full_name AS to_name, tu.avatar_color AS to_color, tu.payment_method AS to_method, tu.payment_account AS to_account, tu.pay_code AS to_pay_code
     FROM settlements s JOIN bills b ON b.id = s.bill_id JOIN users fu ON fu.id = s.from_user_id JOIN users tu ON tu.id = s.to_user_id';
 // Everything between the two of us, either way round.
@@ -31,6 +32,13 @@ $between = q(
     [$id, $me['id'], $me['id'], $id]
 )->fetchAll();
 $rows = settlement_rows_with_parts($between);
+// Utang reads as such wherever it's listed on the card.
+foreach ($rows as &$r) {
+    if ($r['bill_kind'] === 'loan') {
+        $r['bill_name'] = 'Utang · ' . $r['bill_name'];
+    }
+}
+unset($r);
 
 $open = array_values(array_filter($rows, fn ($s) => $s['status'] !== 'settled'));
 $sum = fn (array $list) => pesos(array_sum(array_map(fn ($s) => cents($s['remaining']), $list)));
@@ -72,6 +80,9 @@ json_ok([
         'is_me'           => $id === $me['id'],
     ],
     'they_owe'     => $sum($theyOwe),
+    // Cash overpaid and kept as credit: theirs that I'm holding, and mine they're holding.
+    'their_credit' => pesos(credit_cents($id, $me['id'])),
+    'my_credit'    => pesos(credit_cents($me['id'], $id)),
     'i_owe'        => $sum($iOwe),
     'installments' => array_map($brief, array_values(array_filter($open, $isInstallment))),
     'open'         => array_map($brief, array_values(array_filter($open, fn ($s) => !$isInstallment($s)))),

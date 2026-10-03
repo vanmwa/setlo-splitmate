@@ -88,6 +88,37 @@ $steps = [
        FOREIGN KEY (settlement_id) REFERENCES settlements(id) ON DELETE CASCADE,
        FOREIGN KEY (paid_by) REFERENCES users(id), INDEX (status)
      ) ENGINE=InnoDB",
+    // Utang: money lent or borrowed outside any bill, kept as a two-person bill of kind 'loan'
+    "ALTER TABLE bills ADD COLUMN IF NOT EXISTS kind ENUM('bill','loan') NOT NULL DEFAULT 'bill' AFTER name",
+    'ALTER TABLE bills ADD COLUMN IF NOT EXISTS loan_amount DECIMAL(10,2) NULL AFTER kind',
+    // Cash overpayment: change given back, or kept as credit
+    "ALTER TABLE settlement_payments MODIFY method ENUM('online','transfer','cash','credit') NOT NULL",
+    "ALTER TABLE settlements MODIFY settle_method ENUM('online','transfer','cash','credit','mixed') NULL",
+    'ALTER TABLE settlement_payments ADD COLUMN IF NOT EXISTS tendered DECIMAL(10,2) NULL AFTER pay_back',
+    'ALTER TABLE settlement_payments ADD COLUMN IF NOT EXISTS change_given DECIMAL(10,2) NULL AFTER tendered',
+    'ALTER TABLE settlement_payments ADD COLUMN IF NOT EXISTS credit_kept DECIMAL(10,2) NULL AFTER change_given',
+    'CREATE TABLE IF NOT EXISTS credits (
+       id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, owner_id INT UNSIGNED NOT NULL, holder_id INT UNSIGNED NOT NULL,
+       amount DECIMAL(10,2) NOT NULL, remaining DECIMAL(10,2) NOT NULL, source_payment_id INT UNSIGNED NULL,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE,
+       FOREIGN KEY (holder_id) REFERENCES users(id) ON DELETE CASCADE,
+       FOREIGN KEY (source_payment_id) REFERENCES settlement_payments(id) ON DELETE SET NULL,
+       INDEX (owner_id, holder_id)
+     ) ENGINE=InnoDB',
+    // Saved groups
+    'CREATE TABLE IF NOT EXISTS user_groups (
+       id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, name VARCHAR(60) NOT NULL, owner_id INT UNSIGNED NOT NULL,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB',
+    'CREATE TABLE IF NOT EXISTS user_group_members (
+       group_id INT UNSIGNED NOT NULL, user_id INT UNSIGNED NOT NULL, joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       PRIMARY KEY (group_id, user_id),
+       FOREIGN KEY (group_id) REFERENCES user_groups(id) ON DELETE CASCADE,
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB',
+    'ALTER TABLE bills ADD COLUMN IF NOT EXISTS group_id INT UNSIGNED NULL AFTER loan_amount',
+    'ALTER TABLE bills ADD CONSTRAINT bills_group_fk FOREIGN KEY IF NOT EXISTS (group_id) REFERENCES user_groups(id) ON DELETE SET NULL',
 ];
 foreach ($steps as $sql) {
     db()->exec($sql);

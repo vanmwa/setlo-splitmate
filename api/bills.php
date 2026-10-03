@@ -74,6 +74,7 @@ if (method() === 'GET') {
             'bill' => [
                 'id'             => $bill['id'],
                 'name'           => $bill['name'],
+                'kind'           => $bill['kind'],
                 'status'         => $bill['status'],
                 'creator_id'     => $bill['creator_id'],
                 'payer_id'       => $bill['payer_id'],
@@ -121,7 +122,7 @@ if (method() === 'GET') {
     $where = $scope === 'history' ? "AND b.status = 'closed'" : '';
     $rows = q(
         "SELECT b.* FROM bills b JOIN bill_members m ON m.bill_id = b.id
-         WHERE m.user_id = ? $where
+         WHERE m.user_id = ? AND b.kind = 'bill' $where
          ORDER BY FIELD(b.status, 'active', 'draft', 'settling', 'closed'), COALESCE(b.closed_at, b.created_at) DESC",
         [$me['id']]
     )->fetchAll();
@@ -155,7 +156,11 @@ if ($action === 'create') {
 
     $pdo = db();
     $pdo->beginTransaction();
-    q('INSERT INTO bills (name, creator_id, payer_id) VALUES (?, ?, ?)', [$name, $me['id'], $payerId]);
+    $groupId = (int) input('group_id', 0);
+    if ($groupId && !q('SELECT 1 FROM user_group_members WHERE group_id = ? AND user_id = ?', [$groupId, $me['id']])->fetchColumn()) {
+        $groupId = 0;
+    }
+    q('INSERT INTO bills (name, creator_id, payer_id, group_id) VALUES (?, ?, ?, ?)', [$name, $me['id'], $payerId, $groupId ?: null]);
     $billId = (int) $pdo->lastInsertId();
     foreach ($all as $uid) {
         q('INSERT INTO bill_members (bill_id, user_id) VALUES (?, ?)', [$billId, $uid]);

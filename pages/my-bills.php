@@ -67,6 +67,13 @@ require __DIR__ . '/../partials/head.php';
           <input id="bill-name" ref="name" data-field="name" v-model="form.name" @input="touch('name')" @blur="touch('name')" :class="{ 'is-invalid': err('name') }" class="input-soft" placeholder="e.g. Mang Inasal Friday" maxlength="120" />
           <p v-if="err('name')" class="field-error">{{ err('name') }}</p>
         </div>
+        <div v-if="groups.length">
+          <p class="field-label">Start from a group</p>
+          <div class="flex flex-wrap gap-2">
+            <button v-for="g in groups" :key="g.id" type="button" @click="useGroup(g)" class="pill !px-3 !py-1.5 !text-[12px]"
+              :class="form.group_id === g.id ? 'bg-brand-600 text-white' : 'border border-slate-200 bg-white text-slate-600'">{{ g.name }} · {{ g.members.length }}</button>
+          </div>
+        </div>
         <div>
           <label class="field-label" for="member-search">Add Members</label>
           <div class="input-wrap">
@@ -116,7 +123,8 @@ Setlo.mount({
     filters: ['all', 'active', 'settling', 'closed'], filter: 'all',
     // ?new=1 opens the Create Bill sheet in the very first paint (no pop-in on refresh)
     creating: new URLSearchParams(location.search).has('new'), search: '', results: [], timer: null,
-    form: { name: '', members: [], guests: [], payer_id: <?= (int) $user['id'] ?> },
+    form: { name: '', members: [], guests: [], payer_id: <?= (int) $user['id'] ?>, group_id: null },
+    groups: [],
     guestName: '',
   }),
   computed: {
@@ -132,9 +140,25 @@ Setlo.mount({
     await Setlo.load(this, 'bills.php', null, (r) => { this.bills = r.bills; });
   },
   methods: {
-    openCreate() {
+    async openCreate() {
       this.creating = true;
       this.$nextTick(() => this.$refs.name && this.$refs.name.focus());
+      try { this.groups = (await api.get('groups.php')).groups; } catch (e) { this.groups = []; }
+      // From a group page: ?new=1&group=ID
+      const g = this.groups.find((x) => x.id === Number(new URLSearchParams(location.search).get('group')));
+      if (g && this.form.group_id !== g.id) this.useGroup(g);
+    },
+    /** Fill the members from a saved group (tap again to undo); the bill shows in the group's trail. */
+    useGroup(g) {
+      if (this.form.group_id === g.id) {
+        this.form.group_id = null;
+        this.form.members = [];
+        this.form.payer_id = this.me;
+        return;
+      }
+      this.form.group_id = g.id;
+      this.form.members = g.members.filter((m) => m.id !== this.me);
+      if (!this.form.members.some((m) => m.id === this.form.payer_id)) this.form.payer_id = this.me;
     },
     lookup() {
       clearTimeout(this.timer);
@@ -172,7 +196,7 @@ Setlo.mount({
     async create() {
       if (!this.validateAll(['name'])) return;
       const r = await Setlo.run(this, () => api.post('bills.php', {
-        action: 'create', name: this.form.name.trim(), payer_id: this.form.payer_id, member_ids: this.form.members.map((m) => m.id), guest_names: this.form.guests,
+        action: 'create', name: this.form.name.trim(), payer_id: this.form.payer_id, member_ids: this.form.members.map((m) => m.id), guest_names: this.form.guests, group_id: this.form.group_id,
       }));
       if (r) location.href = r.redirect;
     },

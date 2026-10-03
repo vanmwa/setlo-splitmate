@@ -1,6 +1,6 @@
 <?php
 // Tab bar: bottom bar on phones, left sidebar on laptops (see .nav2 in src/input.css).
-// Set $nav to 'dashboard' | 'bills' | 'scan' | 'settle' (or 'stats' / 'profile') before including.
+// Set $nav to 'dashboard' | 'bills' | 'scan' | 'settle' (or 'groups' / 'utang' / 'stats' / 'history' / 'profile') before including.
 $tabs = [
     'dashboard' => ['dashboard', 'Dashboard', '<path stroke-linecap="round" stroke-linejoin="round" d="M3 11l9-7 9 7M5 9.5V20h5v-5h4v5h5V9.5"/>'],
     'bills'     => ['my-bills', 'Bills', '<path stroke-linecap="round" stroke-linejoin="round" d="M6 3h12v18l-3-2-3 2-3-2-3 2V3zM9 8h6M9 12h6"/>'],
@@ -9,6 +9,8 @@ $tabs = [
 ];
 // More links, listed right under the tabs in the desktop sidebar (on phones they live in the dashboard menu).
 $more = [
+    'groups'  => ['groups', 'Groups', '<circle cx="9" cy="8" r="3.2"/><circle cx="17" cy="9" r="2.6"/><path stroke-linecap="round" d="M3 19c.8-3 3.2-4.6 6-4.6s5.2 1.6 6 4.6M15.5 14.6c2.6-.3 4.6 1.2 5.5 4.4"/>'],
+    'utang'   => ['utang', 'Utang', '<path stroke-linecap="round" stroke-linejoin="round" d="M7 10h10M7 14h6M17 3l4 4-4 4M21 7H9a6 6 0 00-6 6v0a6 6 0 006 6h3"/>'],
     'stats'   => ['stats', 'Spending', '<path stroke-linecap="round" stroke-linejoin="round" d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'],
     'history' => ['bill-history', 'History', '<circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 7v5l3 2"/>'],
     'profile' => ['profile', 'Profile & payments', '<circle cx="12" cy="8" r="4"/><path stroke-linecap="round" d="M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"/>'],

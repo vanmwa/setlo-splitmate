@@ -131,6 +131,9 @@ Role is never fixed by who created the Bill — it's determined by who paid the 
 - `item_assignments` (which member(s) each item is assigned to)
 - `settlements` (sender, receiver, amount owed incl. any installment interest, amount paid so far, status, timestamps for paid/confirmed)
 - `settlement_payments` (each part of a payment: amount, method, who paid it — the debtor or someone paying for them — and its confirm/reject status)
+- `credits` (cash paid over a debt and kept by the receiver; it pays the payer's next debts to them)
+- `user_groups`, `user_group_members` (saved groups that bills start from; bills.group_id links them)
+- Utang (money lent or borrowed outside a bill) is a two-person `bills` row with `kind = 'loan'`, paid back through a normal settlement
 - `notifications`
 
 ## 10. Demo Scenario (fixed for consistency across mockups and defense)

@@ -6,7 +6,7 @@ $me = api_user();
 
 $bills = q(
     "SELECT b.* FROM bills b JOIN bill_members m ON m.bill_id = b.id
-     WHERE m.user_id = ? AND b.status IN ('active','settling','closed') ORDER BY b.created_at",
+     WHERE m.user_id = ? AND b.kind = 'bill' AND b.status IN ('active','settling','closed') ORDER BY b.created_at",
     [$me['id']]
 )->fetchAll();
 

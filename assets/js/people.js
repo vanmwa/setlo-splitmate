@@ -56,6 +56,8 @@
         <div class="rounded-xl bg-emerald-50 px-3 py-2"><p class="text-[10.5px] font-bold uppercase tracking-wide text-emerald-700">Owes you</p><p class="text-[17px] font-extrabold tabular-nums text-emerald-800">${peso(d.they_owe)}</p></div>
         <div class="rounded-xl bg-slate-50 px-3 py-2"><p class="text-[10.5px] font-bold uppercase tracking-wide text-slate-500">You owe</p><p class="text-[17px] font-extrabold tabular-nums text-ink">${peso(d.i_owe)}</p></div>
       </div>
+      ${d.their_credit > 0 ? `<p class="mt-2 rounded-xl bg-violet-50 px-3 py-2 text-[12px] text-violet-800">You're holding <b>${peso(d.their_credit)}</b> of ${esc(p.first)}'s credit (extra cash) — it pays their next debt to you.</p>` : ''}
+      ${d.my_credit > 0 ? `<p class="mt-2 rounded-xl bg-violet-50 px-3 py-2 text-[12px] text-violet-800">${esc(p.first)} is holding <b>${peso(d.my_credit)}</b> of your credit — it pays your next debt to them.</p>` : ''}
       ${net !== 0 && d.they_owe > 0 && d.i_owe > 0 ? `<p class="mt-2 text-[12px] text-slate-500">Overall, ${net > 0 ? esc(p.first) + ' owes you' : 'you owe ' + esc(p.first)} ${peso(Math.abs(net))}.</p>` : ''}
       ${d.installments.length ? section('UNFINISHED INSTALLMENTS', `<div class="mt-1.5 space-y-1.5">${d.installments.map((s) => debtRow(s, d)).join('')}</div>`) : ''}
       ${d.open.length ? section('OTHER OPEN DEBTS', `<div class="mt-1.5 space-y-1.5">${d.open.map((s) => debtRow(s, d)).join('')}</div>`) : ''}

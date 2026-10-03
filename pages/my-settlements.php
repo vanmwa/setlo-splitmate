@@ -39,7 +39,7 @@ require __DIR__ . '/../partials/head.php';
         <button @click="showPerson(other(s).id)" class="shrink-0 rounded-full" :aria-label="'About ' + other(s).name"><avatar :user="other(s)" :size="36"></avatar></button>
         <div class="min-w-0 flex-1">
           <button @click="showPerson(other(s).id)" class="block max-w-full truncate text-left text-sm font-semibold hover:underline">{{ tab === 'owe' ? (s.from.is_guest ? s.from.first + ' → ' + s.to.name : 'To ' + s.to.name) : 'From ' + s.from.name }}</button>
-          <a :href="'bill-detail.php?bill=' + s.bill_id" class="block truncate text-xs text-slate-400">{{ s.bill_name }}</a>
+          <a :href="billHref(s)" class="block truncate text-xs text-slate-400"><span v-if="s.bill_kind === 'loan'" class="font-bold text-violet-600">Utang · </span>{{ s.bill_name }}</a>
           <span v-if="s.from.is_guest" class="pill pill-draft mt-1">{{ tab === 'owe' ? 'Guest · you pay for them' : 'Guest' }}</span>
         </div>
         <div class="shrink-0 text-right">
@@ -147,7 +147,7 @@ require __DIR__ . '/../partials/head.php';
             <button @click="showPerson(s.from.id)" class="shrink-0 rounded-full" :aria-label="'About ' + s.from.name"><avatar :user="s.from" :size="32"></avatar></button>
             <div class="min-w-0 flex-1">
               <button @click="showPerson(s.from.id)" class="block max-w-full truncate text-left text-sm font-semibold hover:underline">{{ s.from.first }} → {{ s.to.id === me ? 'you' : s.to.first }}</button>
-              <a :href="'bill-detail.php?bill=' + s.bill_id" class="block truncate text-xs text-slate-400">{{ s.bill_name }}</a>
+              <a :href="billHref(s)" class="block truncate text-xs text-slate-400"><span v-if="s.bill_kind === 'loan'" class="font-bold text-violet-600">Utang · </span>{{ s.bill_name }}</a>
             </div>
             <div class="shrink-0 text-right">
               <p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Left to pay</p>
@@ -240,13 +240,32 @@ require __DIR__ . '/../partials/head.php';
       <div class="sheet-grip"></div>
       <h2 class="text-[17px] font-extrabold text-ink">Cash from {{ cashing.from.first }}</h2>
       <p class="mt-0.5 text-[12px] text-slate-500">{{ peso(cashing.open) }} still to pay. Only confirm cash that's in your hands.</p>
-      <label class="field-label mt-4" for="cash">Amount received</label>
+      <label class="field-label mt-4" for="cash">Cash handed over</label>
       <div class="flex items-center gap-2">
         <span class="text-slate-400">₱</span>
         <input id="cash" data-field="amount" :value="payAmount" @input="payAmount = filterMoney($event.target.value); $event.target.value = payAmount; touch('amount')" :class="{ 'is-invalid': err('amount') }" class="input-soft flex-1" inputmode="decimal" aria-label="Cash amount received" />
       </div>
       <p v-if="err('amount')" class="field-error">{{ err('amount') }}</p>
       <p v-else-if="isPart" class="mt-2 text-[12px] text-slate-500">{{ peso(leftAfter) }} stays to pay.</p>
+
+      <!-- More cash than owed: change given back, or kept as their credit -->
+      <template v-if="!err('amount') && cashExtra > 0">
+        <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-[13px] tabular-nums">
+          <div class="flex justify-between"><span class="text-slate-500">Cash handed over</span><span>{{ peso(money(payAmount)) }}</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Pays the debt</span><span>−{{ peso(cashing.open) }}</span></div>
+          <div class="mt-2 flex justify-between border-t border-slate-300 pt-2 font-extrabold text-ink"><span>Extra</span><span>{{ peso(cashExtra) }}</span></div>
+        </div>
+        <div class="mt-3 space-y-2" role="radiogroup" aria-label="What happened to the extra cash">
+          <label class="flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-[12.5px]" :class="extraMode === 'change' ? 'border-brand-400 bg-brand-50' : 'border-slate-200 bg-white'">
+            <input type="radio" value="change" v-model="extraMode" class="mt-0.5 accent-brand-600" />
+            <span><b class="text-ink">I gave {{ peso(cashExtra) }} change back</b><br /><span class="text-slate-500">Shown on the receipt.</span></span>
+          </label>
+          <label class="flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-[12.5px]" :class="extraMode === 'credit' ? 'border-brand-400 bg-brand-50' : 'border-slate-200 bg-white'">
+            <input type="radio" value="credit" v-model="extraMode" class="mt-0.5 accent-brand-600" />
+            <span><b class="text-ink">Keep {{ peso(cashExtra) }} as {{ cashing.from.first }}'s credit</b><br /><span class="text-slate-500">It pays {{ cashing.from.first }}'s other debts to you right away, then any new ones.</span></span>
+          </label>
+        </div>
+      </template>
       <div class="mt-5 grid grid-cols-2 gap-2.5">
         <button type="button" @click="cashing = null" class="btn-pill btn-pill-soft">Cancel</button>
         <button class="btn-pill btn-pill-primary" :disabled="busy">Got {{ peso(money(payAmount)) }}</button>
@@ -282,11 +301,11 @@ Setlo.mount({
   data: () => ({
     me: <?= (int) $user['id'] ?>, loading: true, busy: false, tab: new URLSearchParams(location.search).get('tab') === 'owed' ? 'owed' : 'owe',
     owe: [], owed: [], cover: [], rejecting: null, reason: '',
-    paying: null, covering: false, payBack: true, payAmount: '', cashing: null,
+    paying: null, covering: false, payBack: true, payAmount: '', cashing: null, extraMode: 'change',
     payRef: '', proofFile: null, proofPreview: null, viewer: null,
     online: { enabled: <?= paymongo_available() ? 'true' : 'false' ?>, test: <?= paymongo_test_mode() ? 'true' : 'false' ?>, min: <?= PAYMONGO_MIN_CENTS ?> },
-    methodLabel: { online: 'Paid online · verified by PayMongo', transfer: 'Paid by transfer · confirmed by receiver', cash: 'Paid in cash · settled by receiver', mixed: 'Paid in parts, several ways' },
-    methodName: { online: 'Online', transfer: 'Transfer', cash: 'Cash' },
+    methodLabel: { online: 'Paid online · verified by PayMongo', transfer: 'Paid by transfer · confirmed by receiver', cash: 'Paid in cash · settled by receiver', credit: 'Paid from credit (extra cash kept earlier)', mixed: 'Paid in parts, several ways' },
+    methodName: { online: 'Online', transfer: 'Transfer', cash: 'Cash', credit: 'Credit' },
     partStyle: { awaiting: 'bg-blue-50 text-blue-800', confirmed: 'bg-emerald-50 text-emerald-800', rejected: 'bg-red-50 text-red-700' },
   }),
   computed: {
@@ -317,6 +336,8 @@ Setlo.mount({
       const fee = s.interest_rate && after > 0 ? Math.round((after * s.interest_rate) / 100) : 0;
       return { balance: balance / 100, waiting: waiting / 100, pay: pay / 100, after: after / 100, fee: fee / 100, next: (after + fee) / 100 };
     },
+    /** Cash handed over beyond what's open (Cash sheet only). */
+    cashExtra() { return this.cashing ? Math.max(0, Math.round((money(this.payAmount) - this.cashing.open) * 100) / 100) : 0; },
     leftAfter() { return this.current ? Math.round((this.current.open - money(this.payAmount)) * 100) / 100 : 0; },
     // PayMongo takes nothing below its minimum, even when that's all that's left.
     tooSmallOnline() { return !!this.paying && Math.round(money(this.payAmount) * 100) < this.online.min; },
@@ -375,6 +396,7 @@ Setlo.mount({
     showPerson(id) { Setlo.showPerson(id); },
     /** The other person on a card: who I pay, or who pays me. */
     other(s) { return this.tab === 'owe' ? s.to : s.from; },
+    billHref(s) { return s.bill_kind === 'loan' ? 'utang' : 'bill-detail.php?bill=' + s.bill_id; },
     received(s) { return s.payments.filter((p) => p.status === 'confirmed'); },
     showReceipt(id) { Setlo.showReceipt(id); },
     confirmPart(s, p) { return this.act(s, 'confirm', { payment_id: p.id }); },
@@ -407,6 +429,7 @@ Setlo.mount({
     },
     openCash(s) {
       this.cashing = s;
+      this.extraMode = 'change';
       this.payAmount = s.open.toFixed(2);
       this.touched.amount = false;
     },
@@ -424,9 +447,10 @@ Setlo.mount({
       const amt = money(this.payAmount);
       let amount = '';
       if (s) {
+        // Cash may be more than what's left (change or credit); other payments can't.
         amount = V.money(this.payAmount, { required: true, label: 'Amount' })
           || (amt < Math.min(1, s.open) ? 'Enter at least ₱1.00.' : '')
-          || (amt > s.open ? 'At most ' + this.peso(s.open) + ' — that’s all that’s left.' : '');
+          || (!this.cashing && amt > s.open ? 'At most ' + this.peso(s.open) + ' — that’s all that’s left.' : '');
       }
       return { ref: V.refNo(this.payRef), amount, reason: this.rejecting ? V.reason(this.reason, 5, 500) : '' };
     },
@@ -453,9 +477,13 @@ Setlo.mount({
     async submitCash() {
       if (!this.validateAll(['amount'])) return;
       const s = this.cashing;
-      const r = await Setlo.run(this, () => api.post('settlements.php', { action: 'settle_cash', id: s.id, amount: money(this.payAmount) }));
+      const extra = this.cashExtra;
+      const r = await Setlo.run(this, () => api.post('settlements.php', { action: 'settle_cash', id: s.id, amount: money(this.payAmount), extra: this.extraMode }));
       if (r) this.cashing = null;
-      await this.after(r, r && r.settlement.status === 'settled' ? 'Cash received · settled ✓' : 'Cash received · ' + this.peso(r ? r.settlement.remaining : 0) + ' left');
+      const msg = !r ? '' : extra > 0
+        ? 'Cash received · ' + this.peso(extra) + (this.extraMode === 'credit' ? ' kept as credit' : ' change given')
+        : r.settlement.status === 'settled' ? 'Cash received · settled ✓' : 'Cash received · ' + this.peso(r.settlement.remaining) + ' left';
+      await this.after(r, msg);
     },
     // quiet: skip the "not paid yet" toast, for the automatic check after returning from PayMongo.
     async checkOnline(s, quiet = false) {

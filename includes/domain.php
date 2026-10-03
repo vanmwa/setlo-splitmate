@@ -4,6 +4,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/payments.php'; // apply_credits(), used as new debts are created
+
 function cents($amount): int
 {
     return (int) round(((float) $amount) * 100);
@@ -49,6 +51,9 @@ function require_creator(array $bill, array $user): void
 
 function require_editable(array $bill): void
 {
+    if (($bill['kind'] ?? 'bill') === 'loan') {
+        fail('This is an utang, not a bill — manage it on the Utang page.', 409);
+    }
     if (in_array($bill['status'], ['settling', 'closed'], true)) {
         fail('This bill is locked because settlement has started.', 409);
     }
@@ -286,8 +291,8 @@ function compute_percent_shares(array $bill, array $members, array $items): arra
 function bill_settlements(int $billId): array
 {
     $rows = q(
-        'SELECT s.*, ' . SETTLEMENT_ONLINE_STARTED . ', fu.full_name AS from_name, fu.avatar_color AS from_color, fu.role AS from_role, tu.full_name AS to_name, tu.avatar_color AS to_color, tu.payment_method AS to_method, tu.payment_account AS to_account, tu.pay_code AS to_pay_code
-         FROM settlements s JOIN users fu ON fu.id = s.from_user_id JOIN users tu ON tu.id = s.to_user_id
+        'SELECT s.*, ' . SETTLEMENT_ONLINE_STARTED . ', b.kind AS bill_kind, fu.full_name AS from_name, fu.avatar_color AS from_color, fu.role AS from_role, tu.full_name AS to_name, tu.avatar_color AS to_color, tu.payment_method AS to_method, tu.payment_account AS to_account, tu.pay_code AS to_pay_code
+         FROM settlements s JOIN bills b ON b.id = s.bill_id JOIN users fu ON fu.id = s.from_user_id JOIN users tu ON tu.id = s.to_user_id
          WHERE s.bill_id = ? ORDER BY s.id',
         [$billId]
     )->fetchAll();
@@ -311,6 +316,7 @@ function settlement_row(array $s): array
         'interest_added' => pesos(max(0, $amount - $principal)),
         'bill_id'        => (int) $s['bill_id'],
         'bill_name'      => $s['bill_name'] ?? null,
+        'bill_kind'      => $s['bill_kind'] ?? 'bill',
         'bill_creator_id'=> (int) ($s['bill_creator_id'] ?? 0),
         'amount'         => (float) $s['amount'],
         'status'         => $s['status'],
@@ -340,7 +346,9 @@ function bill_card(array $bill): array
     $members = (int) q('SELECT COUNT(*) FROM bill_members WHERE bill_id = ?', [$id])->fetchColumn();
     $sub = (int) q('SELECT COALESCE(SUM(ROUND(qty * unit_price * 100)), 0) FROM receipt_items WHERE bill_id = ?', [$id])->fetchColumn();
     $tax = tax_included($bill, $sub) ? 0 : cents($bill['tax']);
-    $total = $sub + $tax + cents($bill['service_charge']) - cents($bill['discount'] ?? 0);
+    $total = ($bill['kind'] ?? 'bill') === 'loan'
+        ? cents($bill['loan_amount'] ?? 0)
+        : $sub + $tax + cents($bill['service_charge']) - cents($bill['discount'] ?? 0);
 
     switch ($bill['status']) {
         case 'closed':
@@ -378,6 +386,9 @@ function bill_card(array $bill): array
 /** Where a bill card should take the user, based on its stage. */
 function bill_link(array $bill, int $userId): string
 {
+    if (($bill['kind'] ?? 'bill') === 'loan') {
+        return 'utang';
+    }
     if ($bill['status'] === 'closed') {
         return 'bill-breakdown?bill=' . $bill['id'];
     }
@@ -506,6 +517,7 @@ function start_settling(array $bill, array $actor, ?float $interestRate = null):
             q('INSERT INTO settlements (bill_id, from_user_id, to_user_id, principal, amount, interest_rate) VALUES (?, ?, ?, ?, ?, ?)', [$bill['id'], $from, $to, pesos($c), pesos($c), $interestRate]);
             $sid = (int) $pdo->lastInsertId();
             log_event($sid, $actor['id'], 'created', 'Generated from ' . $bill['name'] . ' balances.');
+            apply_credits($from, $to, (int) $actor['id']);
             notify($from, 'settling', "You owe {$names[$to]} " . peso_str($c) . " for {$bill['name']}."
                 . ($interestRate ? ' Paying in parts adds ' . (0 + $interestRate) . "% of what's left each time." : ''), 'my-settlements');
         }

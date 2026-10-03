@@ -5,7 +5,7 @@ CREATE DATABASE IF NOT EXISTS setlo CHARACTER SET utf8mb4 COLLATE utf8mb4_unicod
 USE setlo;
 
 SET FOREIGN_KEY_CHECKS = 0;
-DROP TABLE IF EXISTS login_attempts, notifications, settlement_events, settlement_payments, settlements, item_assignments, receipt_items, receipt_photos, receipts, bill_payments, bill_members, bills, users;
+DROP TABLE IF EXISTS user_group_members, user_groups, login_attempts, notifications, settlement_events, credits, settlement_payments, settlements, item_assignments, receipt_items, receipt_photos, receipts, bill_payments, bill_members, bills, users;
 SET FOREIGN_KEY_CHECKS = 1;
 
 CREATE TABLE users (
@@ -28,7 +28,10 @@ CREATE TABLE users (
 -- settling: settlements generated, items locked · closed: every settlement confirmed
 CREATE TABLE bills (
   id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  name            VARCHAR(120) NOT NULL,
+  name            VARCHAR(120) NOT NULL,          -- for an utang: what the money was for
+  kind            ENUM('bill','loan') NOT NULL DEFAULT 'bill', -- loan: an utang between two people, no receipt (api/loans.php)
+  loan_amount     DECIMAL(10,2) NULL,             -- loan: how much was lent
+  group_id        INT UNSIGNED NULL,              -- saved group it was started from (user_groups), for the group's trail
   creator_id      INT UNSIGNED NOT NULL,
   payer_id        INT UNSIGNED NOT NULL,          -- who paid the restaurant; receives all settlements
   status          ENUM('draft','active','settling','closed') NOT NULL DEFAULT 'draft',
@@ -149,7 +152,7 @@ CREATE TABLE settlements (
   paid_amount     DECIMAL(10,2) NOT NULL DEFAULT 0, -- confirmed payments so far
   interest_rate   DECIMAL(5,2) NULL,              -- % of what's left, added after each partial payment
   status          ENUM('pending','awaiting','settled','disputed') NOT NULL DEFAULT 'pending',
-  settle_method   ENUM('online','transfer','cash','mixed') NULL, -- how it was paid: online = PayMongo, transfer = ref/screenshot, cash = receiver settled in person
+  settle_method   ENUM('online','transfer','cash','credit','mixed') NULL, -- how it was paid: online = PayMongo, transfer = ref/screenshot, cash = receiver settled in person
   paid_at         DATETIME NULL,
   confirmed_at    DATETIME NULL,
   disputed_at     DATETIME NULL,
@@ -183,12 +186,15 @@ CREATE TABLE settlement_payments (
   settlement_id    INT UNSIGNED NOT NULL,
   paid_by          INT UNSIGNED NOT NULL,
   amount           DECIMAL(10,2) NOT NULL,
-  method           ENUM('online','transfer','cash') NOT NULL,
+  method           ENUM('online','transfer','cash','credit') NOT NULL, -- credit: paid from an earlier cash overpayment
   status           ENUM('started','awaiting','confirmed','rejected') NOT NULL DEFAULT 'awaiting',
   payment_ref      VARCHAR(60) NULL,
   proof_image      VARCHAR(255) NULL,             -- uploads/proofs
   paymongo_session VARCHAR(80) NULL,
   pay_back         TINYINT(1) NOT NULL DEFAULT 0, -- paid for someone else, who then owes paid_by (a new settlement on confirm)
+  tendered         DECIMAL(10,2) NULL,            -- cash handed over, when more than this part
+  change_given     DECIMAL(10,2) NULL,            -- ... and the receiver gave the extra back
+  credit_kept      DECIMAL(10,2) NULL,            -- ... or kept it as credit (credits)
   reject_reason    VARCHAR(500) NULL,
   created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   confirmed_at     DATETIME NULL,
@@ -196,6 +202,43 @@ CREATE TABLE settlement_payments (
   FOREIGN KEY (paid_by)       REFERENCES users(id),
   INDEX (status)
 ) ENGINE=InnoDB;
+
+-- Cash paid over what was owed and kept by the receiver: it pays the payer's other debts to the receiver,
+-- now (oldest first) and as new ones come (new splits, pay-backs, loans), until it's used up.
+CREATE TABLE credits (
+  id                 INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  owner_id           INT UNSIGNED NOT NULL,       -- whose money it is (overpaid)
+  holder_id          INT UNSIGNED NOT NULL,       -- who kept it (received the cash)
+  amount             DECIMAL(10,2) NOT NULL,
+  remaining          DECIMAL(10,2) NOT NULL,
+  source_payment_id  INT UNSIGNED NULL,
+  created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_id)  REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (holder_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (source_payment_id) REFERENCES settlement_payments(id) ON DELETE SET NULL,
+  INDEX (owner_id, holder_id)
+) ENGINE=InnoDB;
+
+-- Saved groups of people who split often ("Barkada", "Dorm"): new bills start from one, and the group page
+-- keeps one trail of its bills, payments and receipts.
+CREATE TABLE user_groups (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name        VARCHAR(60) NOT NULL,
+  owner_id    INT UNSIGNED NOT NULL,
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE user_group_members (
+  group_id   INT UNSIGNED NOT NULL,
+  user_id    INT UNSIGNED NOT NULL,
+  joined_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (group_id, user_id),
+  FOREIGN KEY (group_id) REFERENCES user_groups(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id)  REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+ALTER TABLE bills ADD FOREIGN KEY (group_id) REFERENCES user_groups(id) ON DELETE SET NULL;
 
 -- Failed sign-in attempts, for throttling password guessing (see api/auth.php).
 CREATE TABLE login_attempts (
