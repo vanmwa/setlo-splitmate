@@ -46,23 +46,47 @@ function paymongo_create_checkout(int $cents, string $name, string $description,
     return ['id' => $id, 'url' => $url];
 }
 
+/** How each PayMongo channel is shown (paymongo's "paymaya" is Maya now). */
+const ONLINE_VIA_NAMES = ['card' => 'Card', 'gcash' => 'GCash', 'maya' => 'Maya', 'grab_pay' => 'GrabPay', 'qrph' => 'QR Ph', 'billease' => 'BillEase', 'dob' => 'Online banking'];
+
 /**
  * The paid payment on a checkout session, or null if nothing has been paid yet.
- * Returns ['id' => payment id, 'amount' => cents, 'method' => e.g. "gcash"].
+ * Returns ['id' => payment id, 'amount' => cents, 'via' => card|gcash|maya|…, 'detail' => "Visa •4242" for a card, else null].
  */
 function paymongo_paid_payment(string $sessionId): ?array
 {
-    $res = paymongo_request('GET', 'checkout_sessions/' . rawurlencode($sessionId));
-    foreach ($res['data']['attributes']['payments'] ?? [] as $p) {
+    return paymongo_paid_in(paymongo_request('GET', 'checkout_sessions/' . rawurlencode($sessionId)));
+}
+
+/** The paid payment in a checkout session reply (see paymongo_paid_payment()). */
+function paymongo_paid_in(array $res): ?array
+{
+    $session = $res['data']['attributes'] ?? [];
+    foreach ($session['payments'] ?? [] as $p) {
         if (($p['attributes']['status'] ?? '') === 'paid') {
+            $source = $p['attributes']['source'] ?? [];
+            $via = strtolower((string) ($source['type'] ?? $session['payment_method_used'] ?? 'online'));
+            $via = $via === 'paymaya' ? 'maya' : $via;
+            $detail = null;
+            if ($via === 'card' && !empty($source['last4'])) {
+                $detail = trim(ucfirst((string) ($source['brand'] ?? '')) . ' •' . $source['last4']);
+            }
             return [
                 'id'     => (string) $p['id'],
                 'amount' => (int) $p['attributes']['amount'],
-                'method' => (string) ($p['attributes']['source']['type'] ?? 'online'),
+                'via'    => substr(preg_replace('/[^a-z0-9_]/', '', $via), 0, 20) ?: 'online',
+                'detail' => $detail === null ? null : substr($detail, 0, 40),
             ];
         }
     }
     return null;
+}
+
+/** "GCash", "Maya", "Card (Visa •4242)" — for notes and messages. */
+function online_via_name(?string $via, ?string $detail = null): string
+{
+    $name = ONLINE_VIA_NAMES[$via] ?? ($via ? ucfirst(str_replace('_', ' ', $via)) : 'Online');
+    return $detail ? "$name ($detail)" : $name;
 }
 
 /** One API call. Returns the decoded JSON body. */

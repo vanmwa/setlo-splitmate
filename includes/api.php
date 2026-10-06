@@ -36,7 +36,9 @@ set_exception_handler(function (Throwable $e) {
 
 function json_ok(array $data = []): void
 {
-    echo json_encode(['ok' => true] + $data);
+    // Badges this request earned the signed-in user: the page shows their pop-up (assets/js/api.js).
+    $earned = achievements_for_reply();
+    echo json_encode(['ok' => true] + $data + ($earned ? ['achievements' => $earned] : []));
     exit;
 }
 

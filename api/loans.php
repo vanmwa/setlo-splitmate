@@ -1,6 +1,6 @@
 <?php
 // Utang: money lent or borrowed outside any bill. Either side records it; it counts once the other person
-// confirms. It's kept as a two-person bill of kind 'loan' (draft = waiting to be confirmed, settling = being
+// confirms. Change kept from a cash payment is an utang too (bills.change_payment_id), recorded by whoever kept it. It's kept as a two-person bill of kind 'loan' (draft = waiting to be confirmed, settling = being
 // paid back, closed = paid back), so paying it back is a normal settlement: in parts, any method, installment
 // interest, proof and receipts.
 require __DIR__ . '/../includes/api.php';
@@ -26,6 +26,8 @@ function loan_row(array $b, array $me): array
         'i_lent'        => $lender === $me['id'],
         'other'         => $people[$other] ?? null,
         'recorded_by_me'=> (int) $b['creator_id'] === $me['id'],
+        // Extra cash kept instead of giving change (includes/payments.php record_change_utang): the lender handed it over
+        'from_change'   => $b['change_payment_id'] !== null,
         'created_at'    => $b['created_at'],
         'settlement'    => $s ? [
             'id'          => (int) $s['id'],
@@ -82,12 +84,8 @@ switch (input('action', '')) {
         if ($cents < 100 || $cents > 100000000) {
             fail('Enter an amount from ₱1.00.', 422, ['fields' => ['amount' => 'Enter an amount from ₱1.00.']]);
         }
-        // Installment interest is the lender's call.
-        $rate = input('interest_rate');
-        $rate = $direction === 'lent' && $rate !== null && $rate !== '' ? round((float) $rate, 2) : null;
-        if ($rate !== null && ($rate <= 0 || $rate > 20)) {
-            fail('The interest rate must be above 0% and up to 20%.', 422, ['fields' => ['interest' => 'Above 0% and up to 20%.']]);
-        }
+        // Installment interest is the lender's call, from the fixed INSTALLMENT_RATES.
+        $rate = $direction === 'lent' ? installment_rate(input('interest_rate')) : null;
         $lender = $direction === 'lent' ? $me['id'] : $otherId;
         $pdo = db();
         $pdo->beginTransaction();

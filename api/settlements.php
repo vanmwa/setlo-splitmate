@@ -13,7 +13,7 @@ const NUDGE_COOLDOWN_HOURS = 12;
 
 $me = api_user();
 
-const SETTLEMENT_SELECT = 'SELECT s.*, ' . SETTLEMENT_ONLINE_STARTED . ', b.name AS bill_name, b.kind AS bill_kind, b.creator_id AS bill_creator_id, fu.full_name AS from_name, fu.avatar_color AS from_color, fu.role AS from_role,
+const SETTLEMENT_SELECT = 'SELECT s.*, ' . SETTLEMENT_ONLINE_STARTED . ', b.name AS bill_name, b.kind AS bill_kind, b.status AS bill_status, b.creator_id AS bill_creator_id, fu.full_name AS from_name, fu.avatar_color AS from_color, fu.role AS from_role,
     tu.full_name AS to_name, tu.avatar_color AS to_color, tu.payment_method AS to_method, tu.payment_account AS to_account, tu.pay_code AS to_pay_code
     FROM settlements s JOIN bills b ON b.id = s.bill_id
     JOIN users fu ON fu.id = s.from_user_id JOIN users tu ON tu.id = s.to_user_id';
@@ -73,9 +73,10 @@ if (method() === 'GET') {
         json_ok(['settlement' => settlement_rows_with_parts([$s])[0], 'events' => $events, 'others' => $others]);
     }
 
-    // Includes settlements of guests on bills I created — I settle on their behalf.
-    $rows = q(SETTLEMENT_SELECT . " WHERE s.from_user_id = ? OR s.to_user_id = ? OR (fu.role = 'guest' AND b.creator_id = ?)
-        ORDER BY FIELD(s.status, 'awaiting', 'disputed', 'pending', 'settled'), s.created_at DESC", [$me['id'], $me['id'], $me['id']])->fetchAll();
+    // Includes settlements of guests on bills I created — I settle on their behalf. Leaves out bills I archived.
+    $rows = q(SETTLEMENT_SELECT . " WHERE (s.from_user_id = ? OR s.to_user_id = ? OR (fu.role = 'guest' AND b.creator_id = ?))
+        AND NOT EXISTS (SELECT 1 FROM bill_members am WHERE am.bill_id = s.bill_id AND am.user_id = ? AND am.archived_at IS NOT NULL)
+        ORDER BY FIELD(s.status, 'awaiting', 'disputed', 'pending', 'settled'), s.created_at DESC", [$me['id'], $me['id'], $me['id'], $me['id']])->fetchAll();
     // Other members' open debts on my bills, which I could pay for them.
     $others = q(SETTLEMENT_SELECT . " WHERE s.status IN ('pending','awaiting') AND s.from_user_id <> ? AND s.to_user_id <> ?
         AND NOT (fu.role = 'guest' AND b.creator_id = ?)
@@ -241,7 +242,8 @@ switch (input('action', '')) {
         if ($locked['status'] === 'settled') {
             fail('This settlement is already settled.', 409);
         }
-        // amount = cash handed over. Beyond what's open, the extra was given back as change or kept as credit.
+        // amount = cash handed over. Beyond what's open, the extra was given back as change, or kept: then I owe it
+        // back as an utang (record_change_utang()), used up first against what they owe me.
         $open = open_cents($locked);
         if ($open <= 0) {
             fail('Nothing is left to pay right now — a payment is already waiting for confirmation.', 409);
@@ -253,18 +255,23 @@ switch (input('action', '')) {
         }
         $cents = min($tendered, $open);
         $extra = $tendered - $cents;
-        $keep = input('extra', 'change') === 'credit';
+        $keep = in_array(input('extra', 'change'), ['keep', 'credit'], true); // 'credit': older pages
+        if ($extra > 0 && $keep && $fromGuest) {
+            fail('A guest has no account to keep change for — give it back as change.', 422);
+        }
         $over = $extra > 0 ? ['tendered' => $tendered] + ($keep ? ['credit' => $extra] : ['change' => $extra]) : [];
         $pid = add_payment($locked, (int) $s['from_user_id'], $cents, 'cash', 'awaiting', $over);
         $payer = $debtorName . ($fromGuest ? ' (guest)' : '');
         log_event($id, $me['id'], 'marked_paid', "$myName received " . part_words($cents, $locked) . " in cash from $payer"
-            . ($extra > 0 ? ' (handed over ' . peso_str($tendered) . '; ' . peso_str($extra) . ($keep ? ' kept as credit' : ' given back as change') . ')' : '') . '.');
+            . ($extra > 0 ? ' (handed over ' . peso_str($tendered) . '; ' . peso_str($extra) . ($keep ? ' kept — owed back as utang' : ' given back as change') . ')' : '') . '.');
         confirm_payment($locked, ['id' => $pid, 'amount' => pesos($cents), 'paid_by' => $s['from_user_id'], 'pay_back' => 0], $me['id']);
         if ($extra > 0 && $keep) {
-            add_credit((int) $s['from_user_id'], $me['id'], $extra, $pid);
+            record_change_utang((int) $s['from_user_id'], $me['id'], $extra, $pid, $s['bill_name'], $me['id']);
             $used = apply_credits((int) $s['from_user_id'], $me['id'], $me['id']);
-            notify((int) $s['from_user_id'], 'confirmed', "$myName kept " . peso_str($extra) . " extra from your cash as credit"
-                . ($used ? ': ' . peso_str($used) . ' already paid your other debt to them' : '') . '. It pays your next debts to them.', 'my-settlements');
+            $still = $extra - $used;
+            notify((int) $s['from_user_id'], 'confirmed', "$myName kept " . peso_str($extra) . " change from your cash"
+                . ($used ? ' — ' . peso_str($used) . ' already paid your other debts to them' : '')
+                . ($still > 0 ? '. They owe you ' . peso_str($still) . ' (in Utang); it pays your next debts to them, or they pay it back.' : '.'), 'utang');
         }
         // Receiving cash ends a dispute about an earlier part.
         if ($locked['status'] === 'disputed') {
@@ -349,13 +356,13 @@ switch (input('action', '')) {
             }
             $pdo->beginTransaction();
             $locked = lock_settlement($id);
-            q('UPDATE settlement_payments SET payment_ref = ? WHERE id = ?', [$paid['id'], $p['id']]);
+            q('UPDATE settlement_payments SET payment_ref = ?, online_via = ?, online_detail = ? WHERE id = ?', [$paid['id'], $paid['via'], $paid['detail'], $p['id']]);
             $payer = first_names([(int) $p['paid_by']])[(int) $p['paid_by']];
-            $via = strtoupper($paid['method']) === 'PAYMAYA' ? 'Maya' : ucfirst($paid['method']);
+            $via = online_via_name($paid['via'], $paid['detail']);
             log_event($id, (int) $p['paid_by'], 'marked_paid', "$payer paid " . part_words($paid['amount'], $locked) . " online via PayMongo ($via, ref {$paid['id']})" . ((int) $p['paid_by'] !== (int) $s['from_user_id'] ? " for $debtorName" : '') . '.');
             confirm_payment($locked, $p, null);
             log_event($id, null, 'confirmed', 'PayMongo confirmed the payment.' . (settlement_payload($id, $me)['remaining'] > 0 ? '' : ' Settlement closed.'));
-            notify((int) $s['to_user_id'], 'confirmed', "$payer paid you " . peso_str($paid['amount']) . " online for {$s['bill_name']}. Counted automatically.", 'settlement-audit?id=' . $id);
+            notify((int) $s['to_user_id'], 'confirmed', "$payer paid you " . peso_str($paid['amount']) . " online ($via) for {$s['bill_name']}. Counted automatically.", 'settlement-audit?id=' . $id);
             $pdo->commit();
             $counted++;
         }

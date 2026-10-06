@@ -119,6 +119,71 @@ $steps = [
      ) ENGINE=InnoDB',
     'ALTER TABLE bills ADD COLUMN IF NOT EXISTS group_id INT UNSIGNED NULL AFTER loan_amount',
     'ALTER TABLE bills ADD CONSTRAINT bills_group_fk FOREIGN KEY IF NOT EXISTS (group_id) REFERENCES user_groups(id) ON DELETE SET NULL',
+    // Achievements, and the one shown next to a user's name
+    'CREATE TABLE IF NOT EXISTS user_achievements (
+       user_id INT UNSIGNED NOT NULL, code VARCHAR(30) NOT NULL, bill_id INT UNSIGNED NULL,
+       earned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, seen_at DATETIME NULL, hidden TINYINT(1) NOT NULL DEFAULT 0,
+       PRIMARY KEY (user_id, code),
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+       FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE SET NULL
+     ) ENGINE=InnoDB',
+    'ALTER TABLE users ADD COLUMN IF NOT EXISTS featured_achievement VARCHAR(30) NULL AFTER avatar_color',
+    // Fun Mode: games that decide the split
+    'ALTER TABLE user_groups ADD COLUMN IF NOT EXISTS fun_mode TINYINT(1) NOT NULL DEFAULT 0 AFTER owner_id',
+    "ALTER TABLE bills MODIFY split_mode ENUM('items','percent','game') NOT NULL DEFAULT 'items'",
+    'ALTER TABLE bills ADD COLUMN IF NOT EXISTS game_bonus_user_id INT UNSIGNED NULL AFTER split_mode',
+    'ALTER TABLE bills ADD COLUMN IF NOT EXISTS game_bonus_cents INT UNSIGNED NULL AFTER game_bonus_user_id',
+    'ALTER TABLE bill_members ADD COLUMN IF NOT EXISTS game_weight TINYINT UNSIGNED NULL AFTER percent',
+    "CREATE TABLE IF NOT EXISTS game_sessions (
+       id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, bill_id INT UNSIGNED NOT NULL, host_id INT UNSIGNED NOT NULL,
+       game ENUM('guess','roulette','cards','skip') NOT NULL, mode ENUM('screen','live') NOT NULL DEFAULT 'screen',
+       status ENUM('lobby','playing','choosing','done','cancelled') NOT NULL DEFAULT 'lobby', state TEXT NULL,
+       started_at DATETIME(3) NULL, deadline_at DATETIME(3) NULL, version INT UNSIGNED NOT NULL DEFAULT 1,
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE, FOREIGN KEY (host_id) REFERENCES users(id),
+       INDEX (bill_id, status)
+     ) ENGINE=InnoDB",
+    'CREATE TABLE IF NOT EXISTS game_players (
+       session_id INT UNSIGNED NOT NULL, user_id INT UNSIGNED NOT NULL, joined_at DATETIME NULL,
+       guess_cents INT UNSIGNED NULL, card_slot TINYINT UNSIGNED NULL,
+       PRIMARY KEY (session_id, user_id), UNIQUE (session_id, card_slot),
+       FOREIGN KEY (session_id) REFERENCES game_sessions(id) ON DELETE CASCADE,
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB',
+    "ALTER TABLE notifications MODIFY type ENUM('added','paid','confirmed','disputed','resent','settling','closed','nudge','admin','achievement','game') NOT NULL",
+    // Archiving a closed bill (per member)
+    'ALTER TABLE bill_members ADD COLUMN IF NOT EXISTS archived_at DATETIME NULL AFTER joined_at',
+    // Guess the Bill replaced by Receipt Race and Closest Without Going Over
+    'ALTER TABLE game_players ADD COLUMN IF NOT EXISTS answer_cents INT NULL AFTER joined_at',
+    'ALTER TABLE game_players ADD COLUMN IF NOT EXISTS basket TEXT NULL AFTER answer_cents',
+    'ALTER TABLE game_players ADD COLUMN IF NOT EXISTS turn_started_at DATETIME(3) NULL AFTER basket',
+    'ALTER TABLE game_players ADD COLUMN IF NOT EXISTS answered_at DATETIME(3) NULL AFTER turn_started_at',
+    'ALTER TABLE game_players DROP COLUMN IF EXISTS guess_cents',
+    "UPDATE game_sessions SET game = 'skip' WHERE game = 'guess'",
+    "ALTER TABLE game_sessions MODIFY game ENUM('race','closest','roulette','cards','skip') NOT NULL",
+    // Mystery Card v2: cards move money around an equal split, so a game can set each member's share outright
+    'ALTER TABLE bill_members ADD COLUMN IF NOT EXISTS game_share INT NULL AFTER game_weight',
+    'ALTER TABLE bills DROP COLUMN IF EXISTS game_bonus_user_id',
+    'ALTER TABLE bills DROP COLUMN IF EXISTS game_bonus_cents',
+    'ALTER TABLE game_players ADD COLUMN IF NOT EXISTS target_id INT UNSIGNED NULL AFTER card_slot',
+    // Online payments: which PayMongo channel paid them (card, GCash, Maya…)
+    'ALTER TABLE settlement_payments ADD COLUMN IF NOT EXISTS online_via VARCHAR(20) NULL AFTER method',
+    'ALTER TABLE settlement_payments ADD COLUMN IF NOT EXISTS online_detail VARCHAR(40) NULL AFTER online_via',
+    // …filled in for earlier ones from their audit note: "… online via PayMongo (Gcash, ref pay_…)."
+    "UPDATE settlement_payments p JOIN settlement_events e ON e.settlement_id = p.settlement_id AND e.note LIKE CONCAT('%via PayMongo (%, ref ', p.payment_ref, ')%')
+     SET p.online_via = CASE
+       WHEN e.note LIKE '%via PayMongo (Gcash,%' THEN 'gcash'
+       WHEN e.note LIKE '%via PayMongo (Maya,%' OR e.note LIKE '%via PayMongo (Paymaya,%' THEN 'maya'
+       WHEN e.note LIKE '%via PayMongo (Card,%' THEN 'card'
+       WHEN e.note LIKE '%via PayMongo (Grab_pay,%' THEN 'grab_pay'
+       ELSE NULL END
+     WHERE p.method = 'online' AND p.online_via IS NULL AND p.payment_ref IS NOT NULL",
+    // Item promos: a negative line under an item ("-57.50") taken off that item, not the whole bill
+    'ALTER TABLE receipt_items ADD COLUMN IF NOT EXISTS promo DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER unit_price',
+    // Profile pictures: a preset from assets/pfp or a photo from the gallery
+    'ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar VARCHAR(120) NULL AFTER avatar_color',
+    // Extra cash kept instead of giving change becomes an utang (the receiver owes it back)
+    'ALTER TABLE bills ADD COLUMN IF NOT EXISTS change_payment_id INT UNSIGNED NULL AFTER loan_amount',
 ];
 foreach ($steps as $sql) {
     db()->exec($sql);
@@ -182,5 +247,21 @@ foreach ($missing as $uid) {
 }
 if ($missing) {
     echo 'Created Pay-me QR codes for ' . count($missing) . " account(s).\n";
+}
+// Credit left from extra cash kept before change utang existed: turn each into a change utang (shown in Utang).
+$credits = db()->query(
+    "SELECT c.*, COALESCE(b.name, 'an earlier payment') AS for_name FROM credits c
+     LEFT JOIN settlement_payments p ON p.id = c.source_payment_id LEFT JOIN settlements s ON s.id = p.settlement_id
+     LEFT JOIN bills b ON b.id = s.bill_id WHERE c.remaining > 0"
+)->fetchAll();
+foreach ($credits as $c) {
+    $pdo = db();
+    $pdo->beginTransaction();
+    record_change_utang((int) $c['owner_id'], (int) $c['holder_id'], cents($c['remaining']), (int) ($c['source_payment_id'] ?? 0), $c['for_name'], null);
+    q('UPDATE credits SET remaining = 0 WHERE id = ?', [$c['id']]);
+    $pdo->commit();
+}
+if ($credits) {
+    echo 'Moved ' . count($credits) . " kept-change credit(s) into Utang.\n";
 }
 echo "Database is up to date.\n";

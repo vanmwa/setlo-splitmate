@@ -149,6 +149,8 @@
   .section-label { @apply mb-2.5 text-[11px] font-extrabold tracking-[.08em] text-slate-500; }
 
   /* ---------- Status pills (bill + settlement states) ---------- */
+  /* Featured achievement title next to a name (includes/achievements.php) */
+  .status-badge { @apply inline-flex max-w-full items-center gap-1 truncate whitespace-nowrap rounded-full bg-violet-50 px-2 py-[.15rem] align-middle text-[.68rem] font-bold text-violet-700 ring-1 ring-violet-200; }
   .pill { @apply inline-flex items-center whitespace-nowrap rounded-full px-[.6rem] py-[.22rem] text-[.7rem] font-bold; }
   .pill-draft      { @apply bg-slate-100 text-slate-600; }
   .pill-active     { @apply bg-[#d5f5ef] text-brand-700; }
@@ -181,13 +183,19 @@
   @media (min-width: 1024px) {
     .nav2 {
       position: fixed; top: 0; bottom: 0; left: 0; width: 15rem; z-index: 30;
-      display: flex; flex-direction: column; gap: .25rem;
-      border-top: 0; border-right: 1px solid #e8eeee; padding: 1.5rem .75rem; overflow-x: hidden;
+      display: flex; flex-direction: column; gap: .125rem;
+      border-top: 0; border-right: 1px solid #e8eeee; padding: 1.5rem .75rem 1rem; overflow-x: hidden; overflow-y: auto;
     }
     .nav2 a, .nav2 button {
-      flex-direction: row; gap: .75rem; width: 100%; padding: .65rem .9rem; border-radius: .75rem;
+      flex-direction: row; gap: .75rem; width: 100%; padding: .55rem .9rem; border-radius: .75rem;
       font-size: .875rem; color: #475569; text-align: left;
     }
+    /* Section headings ("Split a bill", "Money"…); in the icon-only strip they become thin dividers */
+    .nav2 .nav-section {
+      display: block; margin: .9rem 0 .2rem; padding: 0 .9rem;
+      font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #94a3b8;
+    }
+    html.sb-collapsed .nav2 .nav-section { height: 1px; margin: .55rem .7rem; padding: 0; background: #e8eeee; }
     .nav2 a:hover, .nav2 button:hover { background: #f1f5f5; }
     .nav2 a.active { background: #e6f7f4; color: theme('colors.brand.700'); }
     .nav2 .nav-label { white-space: nowrap; }
@@ -207,7 +215,7 @@
     html.sb-anim .nav2 { transition: width .2s ease; }
     html.sb-anim .device:not(.auth-layout) { transition: padding-left .2s ease; }
   }
-  .nav2-head { display: none; }
+  .nav2-head, .nav-section { display: none; }
   @media (min-width: 1024px) { .nav2-head { display: flex; } }
   .nav-burger { @apply flex items-center justify-center rounded-xl text-slate-500 hover:bg-[#f1f5f5] hover:text-ink; }
   .nav2 > button { @apply cursor-pointer; }
@@ -220,6 +228,7 @@
   .nav-drawer > a, .nav-drawer-out { @apply flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-semibold text-slate-600 hover:bg-[#f1f5f5]; }
   .nav-drawer > a.active { @apply bg-[#e6f7f4] text-brand-700; }
   .nav-drawer-out { @apply text-rose-600 hover:bg-rose-50; }
+  .nav-drawer-section { @apply px-3 pb-1 pt-4 text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-400; }
   .nav-drawer .nav-burger { @apply h-9 w-9; }
   html.nav-open .nav-backdrop { @apply pointer-events-auto opacity-100; }
   html.nav-open .nav-drawer, html.nav-open .admin-aside { @apply visible translate-x-0; }
@@ -284,7 +293,10 @@
   /* ---------- Overlays ---------- */
   .sheet-backdrop { @apply fixed inset-0 z-50 flex items-end justify-center bg-ink/40 sm:items-center; }
   .sheet { @apply max-h-[85vh] w-full max-w-[430px] overflow-y-auto rounded-t-[28px] bg-white px-6 pb-6 pt-3 sm:rounded-[28px]; }
-  .sheet-grip { @apply mx-auto mb-4 h-1.5 w-10 rounded-full bg-slate-200 sm:hidden; }
+  /* The grip is a white band pinned to the top of the sheet, so on a long sheet it stays put and
+     content scrolls away under it instead of up against the rounded edge. */
+  .sheet-grip { @apply sticky top-0 z-10 -mx-6 -mt-3 mb-1.5 flex h-7 items-center justify-center bg-white sm:hidden; }
+  .sheet-grip::before { content: ""; @apply h-1.5 w-10 rounded-full bg-slate-200; }
   .toast { @apply fixed bottom-24 left-1/2 z-[60] -translate-x-1/2 whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-bold text-white shadow-lg lg:bottom-8; }
 
   /* ---------- Admin desktop panel ---------- */
@@ -349,6 +361,109 @@
   .setlo-swal .swal2-html-container { @apply text-[14px] text-slate-600; }
   .setlo-swal .swal2-confirm, .setlo-swal .swal2-cancel, .setlo-swal .swal2-deny { @apply !rounded-xl !px-5 !py-2.5 !text-[14px] !font-bold !shadow-none; }
   .setlo-swal .swal2-input, .setlo-swal .swal2-textarea { @apply !rounded-xl !border-slate-200 !text-[14px] !shadow-none; }
-  .setlo-swal-toast { font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif !important; border-radius: 16px !important; }
+  /* Focus rings only for keyboard users, and round like the buttons they belong to */
+  .setlo-swal .swal2-styled:focus, .setlo-swal .swal2-close:focus { box-shadow: none !important; }
+  .setlo-swal .swal2-styled:focus-visible { box-shadow: 0 0 0 3px rgb(13 148 136 / .3) !important; }
+  .setlo-swal .swal2-close:focus-visible { box-shadow: 0 0 0 3px rgb(13 148 136 / .3) !important; }
+  /* Close button: the same round grey chip as the sheets' ✕ */
+  .setlo-swal .swal2-close {
+    @apply !mr-3 !mt-3 !h-8 !w-8 !rounded-full !bg-slate-100 !text-[22px] !text-slate-500 hover:!bg-slate-200 hover:!text-ink;
+  }
+  /* Toasts clip their timer bar to their own rounded corners, flush with the bottom edge */
+  .setlo-swal-toast { font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif !important; border-radius: 16px !important; overflow: hidden; }
+  .setlo-swal-toast .swal2-timer-progress-bar-container { border-radius: 0 !important; }
+  .setlo-swal-toast .swal2-timer-progress-bar { @apply !h-[3px] !bg-brand-500/40; }
+
+  /* Achievement pop-up (assets/js/ui.js achievementModal): a tall card floating over the dimmed page, the
+     button underneath it. The card flips in, then tilts toward the pointer with a shine that follows it. */
+  .badge-popup { width: min(320px, 86vw) !important; padding: 0 !important; background: transparent !important; box-shadow: none !important; overflow: visible !important; }
+  .badge-popup .swal2-html-container { margin: 0 !important; padding: 0 !important; overflow: visible !important; }
+  .badge-popup .swal2-actions { margin-top: 1.1rem !important; }
+  .badge-popup .swal2-confirm { @apply !min-w-[9rem] !rounded-full !py-3 !text-[15px] !shadow-[0_12px_24px_-10px_rgb(0_0_0/.5)]; }
+  .badge-flip { perspective: 1000px; animation: badge-in .75s cubic-bezier(.2, 1.25, .4, 1) both; }
+  .badge-card {
+    @apply relative flex flex-col overflow-hidden rounded-[28px] bg-white text-center;
+    height: min(470px, 68vh);
+    box-shadow: 0 34px 60px -22px rgb(0 0 0 / .55), 0 0 0 6px rgb(255 255 255 / .9);
+    transform-style: preserve-3d; transition: transform .45s cubic-bezier(.2, .9, .3, 1); touch-action: none; user-select: none;
+  }
+  .badge-card.tilting { transition: transform .08s linear; }
+  .badge-art {
+    @apply relative flex min-h-0 flex-1 items-center justify-center overflow-hidden;
+    background: radial-gradient(circle at 50% 42%, var(--c1) 0%, var(--c2) 115%);
+  }
+  .badge-art img { @apply relative max-h-[80%] max-w-[84%] object-contain; filter: drop-shadow(0 12px 14px rgb(0 0 0 / .22)); animation: badge-float 4s ease-in-out .8s infinite; }
+  .badge-rays {
+    @apply pointer-events-none absolute left-1/2 top-[42%] h-[180%] w-[180%] -translate-x-1/2 -translate-y-1/2;
+    background: repeating-conic-gradient(rgb(255 255 255 / .22) 0 9deg, transparent 9deg 18deg);
+    -webkit-mask: radial-gradient(circle, #000 25%, transparent 62%); mask: radial-gradient(circle, #000 25%, transparent 62%);
+    animation: badge-spin 30s linear infinite;
+  }
+  .badge-tag { @apply absolute left-3.5 top-3.5 rounded-full bg-white/90 px-2.5 py-1 text-[10.5px] font-extrabold uppercase tracking-[.1em] text-ink shadow-sm; }
+  .badge-body { @apply shrink-0 px-5 pb-6 pt-4; }
+  .badge-shine {
+    @apply pointer-events-none absolute inset-0 rounded-[28px];
+    background: radial-gradient(circle at var(--mx, 50%) var(--my, 0%), rgb(255 255 255 / .55), transparent 50%);
+    mix-blend-mode: soft-light; opacity: var(--shine, 0); transition: opacity .35s;
+  }
+  .badge-confetti { @apply pointer-events-none fixed inset-0 z-[1070] h-full w-full; }
+  @keyframes badge-in {
+    0%   { opacity: 0; transform: rotateY(-95deg) scale(.7); }
+    60%  { opacity: 1; }
+    100% { opacity: 1; transform: rotateY(0) scale(1); }
+  }
+  @keyframes badge-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+  @keyframes badge-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .badge-flip, .badge-rays, .badge-art img { animation: none; }
+  }
   .setlo-swal-toast .swal2-title { @apply !text-[13px] !font-semibold !text-slate-700; }
+}
+
+/* ---------- Fun Mode (saved groups with games, pages/game.php) ---------- */
+@layer components {
+  .app-hero.fun-hero {
+    background:
+      radial-gradient(circle 4px at 12% 22%, rgb(255 255 255 / .45) 99%, transparent 100%),
+      radial-gradient(circle 3px at 78% 68%, rgb(253 224 71 / .8) 99%, transparent 100%),
+      radial-gradient(circle 3px at 40% 85%, rgb(255 255 255 / .35) 99%, transparent 100%),
+      radial-gradient(circle 5px at 90% 18%, rgb(253 224 71 / .55) 99%, transparent 100%),
+      radial-gradient(circle 120px at calc(100% - 50px) 30px, rgb(255 255 255 / .08) 99%, transparent 100%),
+      linear-gradient(150deg, #a855f7 0%, #d946ef 45%, #f97316 100%);
+  }
+  .fun-chip { @apply inline-flex items-center gap-1 rounded-full bg-white/25 px-2 py-0.5 text-[11px] font-extrabold text-white ring-1 ring-white/40; }
+  .fun-badge { @apply inline-flex items-center gap-1 rounded-full bg-fuchsia-50 px-2 py-0.5 text-[10.5px] font-extrabold text-fuchsia-700 ring-1 ring-fuchsia-200; }
+
+  /* On/off switch: <button role="switch" :aria-checked class="switch"><span></span></button> */
+  .switch { @apply relative inline-flex h-7 w-12 shrink-0 items-center rounded-full bg-slate-300 transition-colors disabled:opacity-60; }
+  .switch > span { @apply absolute left-1 h-5 w-5 rounded-full bg-white shadow transition-transform; }
+  .switch[aria-checked="true"] { @apply bg-fuchsia-500; }
+  .switch[aria-checked="true"] > span { transform: translateX(20px); }
+
+  .game-option { @apply flex w-full items-center gap-4 rounded-3xl border-2 border-transparent bg-white p-4 text-left shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:ring-fuchsia-300; }
+  .game-option.on { @apply border-fuchsia-500 bg-fuchsia-50/70 ring-0; }
+  .game-emoji { @apply flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-fuchsia-100 to-orange-100 text-[28px]; }
+  .btn-fun { @apply bg-gradient-to-r from-fuchsia-500 to-orange-500 text-white shadow-[0_10px_20px_-8px_rgb(217_70_239/.6)] hover:from-fuchsia-600 hover:to-orange-600; }
+
+  /* Mystery cards flip over when picked */
+  .mcard { perspective: 700px; @apply aspect-[3/4] w-full; }
+  .mcard-inner { @apply relative h-full w-full transition-transform duration-700; transform-style: preserve-3d; }
+  .mcard.flipped .mcard-inner { transform: rotateY(180deg); }
+  .mcard-face { @apply absolute inset-0 flex flex-col items-center justify-center rounded-2xl p-2 text-center; backface-visibility: hidden; }
+  .mcard-back { @apply bg-gradient-to-br from-fuchsia-500 to-orange-400 text-[34px] text-white shadow-md ring-4 ring-white; }
+  .mcard-front { @apply bg-white shadow-md ring-2 ring-fuchsia-200; transform: rotateY(180deg); }
+  /* A picked card: greyed out, can't be picked again */
+  .mcard-taken { @apply flex aspect-[3/4] w-full cursor-not-allowed select-none flex-col items-center justify-center gap-1 rounded-2xl bg-slate-100 p-2 text-slate-400 opacity-60 grayscale border-2 border-dashed border-slate-300; }
+
+  /* Roulette */
+  /* Seats grow only a little when highlighted, so they stay inside the card's padding and clear of the title */
+  .roulette-seat { @apply flex flex-col items-center justify-center gap-1.5 rounded-2xl px-2 py-3 transition duration-500; }
+  .roulette-seat.hot { @apply scale-105 bg-fuchsia-100 ring-2 ring-fuchsia-400; }
+  .roulette-seat.out { @apply scale-95 opacity-40 grayscale; }
+  .roulette-seat.payer { @apply scale-105 bg-amber-100 ring-[3px] ring-amber-400; }
+
+  .pop-in { animation: popin .5s cubic-bezier(.2, 1.6, .4, 1) both; }
+  @keyframes popin { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .wiggle { animation: wiggle .8s ease-in-out infinite; }
+  @keyframes wiggle { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
 }

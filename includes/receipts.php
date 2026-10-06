@@ -120,7 +120,7 @@ function store_receipts(array $bill, array $receipts, string $status, array $has
     // Nothing read (scan failed or found no receipt): keep the photo as an empty receipt, so it can still be viewed.
     if (!$receipts && $hashedPhotos) {
         $receipts = [['items' => [], 'subtotal' => null, 'tax' => 0.0, 'service_charge' => 0.0, 'discount' => 0.0, 'total' => null,
-                      'raw_text' => '', 'store_name' => '', 'receipt_no' => '', 'txn_date' => '']];
+                      'raw_text' => '', 'store_name' => '', 'title' => '', 'receipt_no' => '', 'txn_date' => '']];
     }
 
     $ids = [];
@@ -155,10 +155,11 @@ function store_receipts(array $bill, array $receipts, string $status, array $has
             }
         }
 
+        // The scanner's suggested title is saved as the title; the user can change or clear it on Review.
         q(
-            'INSERT INTO receipts (bill_id, position, store_name, receipt_no, txn_date, subtotal, tax, service_charge, discount, total, ocr_raw, ocr_status, dup_note)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [$billId, $position++, $r['store_name'] ?: null, $r['receipt_no'] ?: null, $r['txn_date'] ?: null, $r['subtotal'], $r['tax'],
+            'INSERT INTO receipts (bill_id, position, title, store_name, receipt_no, txn_date, subtotal, tax, service_charge, discount, total, ocr_raw, ocr_status, dup_note)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [$billId, $position++, ($r['title'] ?? '') ?: null, $r['store_name'] ?: null, $r['receipt_no'] ?: null, $r['txn_date'] ?: null, $r['subtotal'], $r['tax'],
              $r['service_charge'], $r['discount'], $total, $r['raw_text'] ?: null, $status === 'ok' ? 'ok' : 'failed', $dup]
         );
         $rid = (int) $pdo->lastInsertId();
@@ -172,9 +173,9 @@ function store_receipts(array $bill, array $receipts, string $status, array $has
 
         foreach ($r['items'] as $it) {
             q(
-                "INSERT INTO receipt_items (bill_id, receipt_id, position, name, qty, unit_price, source, ocr_name, printed_name, details, needs_review, suggestion)
-                 VALUES (?, ?, ?, ?, ?, ?, 'ocr', ?, ?, ?, ?, ?)",
-                [$billId, $rid, $itemPos++, $it['name'], $it['qty'], $it['unit_price'], $it['name'], $it['printed_name'], $it['details'], (int) $it['needs_review'], $it['suggestion']]
+                "INSERT INTO receipt_items (bill_id, receipt_id, position, name, qty, unit_price, promo, source, ocr_name, printed_name, details, needs_review, suggestion)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'ocr', ?, ?, ?, ?, ?)",
+                [$billId, $rid, $itemPos++, $it['name'], $it['qty'], $it['unit_price'], $it['promo'] ?? 0, $it['name'], $it['printed_name'], $it['details'], (int) $it['needs_review'], $it['suggestion']]
             );
         }
 

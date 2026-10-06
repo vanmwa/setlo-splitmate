@@ -13,7 +13,7 @@ require __DIR__ . '/../partials/head.php';
       <?php require __DIR__ . '/../partials/back.php'; ?>
       <div class="min-w-0 flex-1">
         <h1 class="text-[21px] font-extrabold tracking-tight">Utang</h1>
-        <p class="text-[12px] font-medium text-brand-50/90">Money lent or borrowed outside a bill</p>
+        <p class="text-[12px] font-medium text-brand-50/90">Money lent or borrowed, and cash change kept</p>
       </div>
       <button @click="openNew" class="shrink-0 rounded-full bg-white/15 px-3.5 py-2 text-[13px] font-bold text-white hover:bg-white/25">+ Record</button>
     </div>
@@ -44,8 +44,9 @@ require __DIR__ . '/../partials/head.php';
           <div class="flex items-start gap-3">
             <button v-if="l.other" @click="showPerson(l.other.id)" class="shrink-0 rounded-full" :aria-label="'About ' + l.other.name"><avatar :user="l.other" :size="36"></avatar></button>
             <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-semibold">{{ l.i_lent ? 'You lent ' + l.other.first : l.other.first + ' lent you' }}</p>
+              <p class="truncate text-sm font-semibold">{{ headline(l) }}</p>
               <p class="truncate text-xs text-slate-400">{{ l.purpose }} · {{ fmtDate(l.created_at) }}</p>
+              <span v-if="l.from_change" class="pill mt-1 bg-violet-50 text-violet-700">💵 Cash change</span>
               <span v-if="l.interest_rate" class="pill pill-draft mt-1">{{ l.interest_rate }}% per partial payment</span>
             </div>
             <div class="shrink-0 text-right">
@@ -57,6 +58,11 @@ require __DIR__ . '/../partials/head.php';
           <div v-if="l.settlement && l.settlement.paid_amount > 0 && l.status !== 'closed'" class="mt-2.5">
             <div class="progress !h-1.5"><span :style="{ width: Math.min(100, (100 * l.settlement.paid_amount) / l.settlement.amount) + '%' }"></span></div>
           </div>
+          <p v-if="l.from_change && l.status !== 'closed'" class="mt-2.5 rounded-lg bg-violet-50 px-3 py-2 text-[11.5px] leading-snug text-violet-800">
+            {{ l.i_lent
+              ? 'Extra cash you handed over. It pays your next debts to ' + l.other.first + ' automatically, or ' + l.other.first + ' pays it back.'
+              : 'Extra cash you kept instead of giving change. It’s used up automatically when ' + l.other.first + ' owes you, or pay it back any time.' }}
+          </p>
 
           <div class="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3">
             <template v-if="l.status === 'draft'">
@@ -127,10 +133,9 @@ require __DIR__ . '/../partials/head.php';
           <input type="checkbox" v-model="f.interestOn" class="mt-0.5 h-4 w-4 shrink-0 accent-brand-600" />
           <span><b class="text-ink">Installments with interest</b><br />Each partial payment adds this % of what's still left.</span>
         </label>
-        <div v-if="f.interestOn" class="mt-2 flex items-center gap-2 px-1 text-[13px]">
-          <span class="flex-1 text-slate-500">Interest after each partial payment</span>
-          <input v-model="f.rate" data-field="interest" @input="touch('interest')" inputmode="decimal" class="row-in !h-9 w-20 text-right" :class="{ 'is-invalid': err('interest') }" aria-label="Interest rate in percent" />
-          <span class="text-slate-400">%</span>
+        <div v-if="f.interestOn" class="mt-2.5" data-field="interest">
+          <p class="mb-1.5 px-1 text-[12px] font-semibold text-slate-500">Interest after each partial payment</p>
+          <rate-choice :rates="rates" v-model="f.rate"></rate-choice>
         </div>
         <p v-if="f.interestOn && err('interest')" class="field-error px-1">{{ err('interest') }}</p>
       </template>
@@ -150,7 +155,9 @@ Setlo.mount({
   data: () => ({
     loading: true, busy: false, loans: [],
     drafting: false, search: '', results: [], timer: null,
-    f: { direction: 'lent', person: null, amount: '', purpose: '', interestOn: false, rate: '5' },
+    // Installment interest: one of the fixed rates (INSTALLMENT_RATES), the lowest picked by default
+    rates: <?= json_encode(INSTALLMENT_RATES) ?>,
+    f: { direction: 'lent', person: null, amount: '', purpose: '', interestOn: false, rate: <?= (int) INSTALLMENT_RATES[0]['rate'] ?> },
   }),
   computed: {
     sections() {
@@ -174,10 +181,15 @@ Setlo.mount({
     await Setlo.load(this, 'loans.php', null, (r) => { this.loans = r.loans; });
   },
   methods: {
+    /** "You lent Ana" / "Ana lent you", or for kept change "You owe Ana change" / "Ana owes you change". */
+    headline(l) {
+      if (l.from_change) return l.i_lent ? l.other.first + ' owes you change' : 'You owe ' + l.other.first + ' change';
+      return l.i_lent ? 'You lent ' + l.other.first : l.other.first + ' lent you';
+    },
     showPerson(id) { Setlo.showPerson(id); },
     async load() { this.loans = (await api.get('loans.php')).loans; },
     openNew() {
-      this.f = { direction: 'lent', person: null, amount: '', purpose: '', interestOn: false, rate: '5' };
+      this.f = { direction: 'lent', person: null, amount: '', purpose: '', interestOn: false, rate: this.rates[0].rate };
       this.search = '';
       this.results = [];
       Object.keys(this.touched).forEach((k) => { this.touched[k] = false; });
@@ -193,12 +205,12 @@ Setlo.mount({
     },
     pick(u) { this.f.person = u; this.results = []; this.search = ''; },
     validators() {
-      const r = parseFloat(this.f.rate);
+      const rateOk = this.rates.some((x) => x.rate === this.f.rate);
       return {
         person: this.f.person ? '' : 'Choose who it was with.',
         amount: V.money(this.f.amount, { required: true, label: 'Amount' }) || (money(this.f.amount) < 1 ? 'Enter at least ₱1.00.' : ''),
         purpose: V.required(this.f.purpose, 'What it was for') || V.maxLen(this.f.purpose, 120, 'What it was for'),
-        interest: this.f.direction === 'lent' && this.f.interestOn && !(r > 0 && r <= 20) ? 'Enter a rate above 0% and up to 20%.' : '',
+        interest: this.f.direction === 'lent' && this.f.interestOn && !rateOk ? 'Choose one of the interest rates.' : '',
       };
     },
     async create() {
@@ -206,7 +218,7 @@ Setlo.mount({
       const f = this.f;
       const r = await Setlo.run(this, () => api.post('loans.php', {
         action: 'create', person_id: f.person.id, direction: f.direction, amount: money(f.amount), purpose: f.purpose.trim(),
-        interest_rate: f.direction === 'lent' && f.interestOn ? parseFloat(f.rate) : null,
+        interest_rate: f.direction === 'lent' && f.interestOn ? f.rate : null,
       }));
       if (!r) return;
       this.drafting = false;

@@ -18,7 +18,8 @@ require __DIR__ . '/../partials/head.php';
       <div class="flex items-center gap-2.5">
         <notif-bell></notif-bell>
         <div class="relative">
-          <button class="glass-btn" @click="menu = !menu" aria-label="Account menu"><?= h(initials($user['full_name'])) ?></button>
+          <?php $photo = avatar_url($user['avatar'], $user['id']); ?>
+          <button class="glass-btn<?= $photo ? ' overflow-hidden !bg-white/90 p-0.5' : '' ?>" @click="menu = !menu" aria-label="Account menu"><?php if ($photo): ?><img src="<?= h($photo) ?>" alt="" class="h-full w-full rounded-full object-cover" /><?php else: ?><?= h(initials($user['full_name'])) ?><?php endif; ?></button>
           <div v-if="menu" class="hero-pop tile absolute right-0 top-12 z-40 w-56 overflow-hidden text-slate-800 shadow-xl">
             <div class="border-b border-slate-100 px-4 py-3">
               <p class="text-sm font-bold text-ink"><?= h($user['full_name']) ?></p>
@@ -71,7 +72,7 @@ require __DIR__ . '/../partials/head.php';
         </div>
         <span class="text-[12px] font-semibold text-slate-600">Settle Up</span>
       </a>
-      <a href="bill-history" class="flex flex-col items-center gap-1.5">
+      <a href="stats?tab=history" class="flex flex-col items-center gap-1.5">
         <div class="qa-icon bg-slate-200/80 text-slate-600">
           <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 7v5l3 2"/></svg>
         </div>
@@ -143,8 +144,18 @@ Setlo.mount({
   async mounted() {
     document.addEventListener('click', (e) => { if (!e.target.closest('[aria-label="Account menu"]') && !e.target.closest('form')) this.menu = false; });
     await Setlo.load(this, 'dashboard.php', null, (r) => { this.d = r; });
+    this.showNewAchievements();
   },
   methods: {
+    /** Badges earned while away (someone else's action earned them): their pop-ups, once. */
+    async showNewAchievements() {
+      try {
+        const r = await api.get('achievements.php');
+        if (!r.unseen.length) return;
+        await Setlo.showAchievements(r.unseen);
+        await api.post('achievements.php', { action: 'seen', codes: r.unseen.map((a) => a.code) });
+      } catch (e) { /* badges are non-critical */ }
+    },
     describe(a) {
       const amt = this.peso(a.amount);
       switch (a.event) {

@@ -96,7 +96,7 @@ Setlo.mount({
       clientId: GOOGLE_CLIENT_ID,
       label: 'Sign up with Google',
       text: 'signup_with',
-      onSuccess: (r) => { location.href = NEXT || r.redirect; },
+      onSuccess: (r) => { location.href = Setlo.afterSignUp(r, NEXT); },
       onError: (message) => { this.error = message; },
     });
   },
@@ -118,7 +118,7 @@ Setlo.mount({
       this.busy = true;
       try {
         const r = await api.post('auth.php', { action: 'register', ...this.f, full_name: this.f.full_name.trim() });
-        location.href = NEXT || r.redirect;
+        location.href = Setlo.afterSignUp(r, NEXT);
       } catch (e) {
         this.serverErrors = e.data.fields || {};
         if (!e.data.fields) this.error = e.message;

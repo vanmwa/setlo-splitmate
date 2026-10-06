@@ -13,12 +13,12 @@ require __DIR__ . '/../partials/head.php';
 ?>
 <div id="app" class="device device-narrow" v-cloak>
 
-  <div class="app-hero px-5 pb-5 pt-8">
+  <div class="app-hero px-5 pb-5 pt-8" :class="{ 'fun-hero': bill && bill.fun_mode }">
     <div class="flex items-center gap-3">
       <?php require __DIR__ . '/../partials/back.php'; ?>
       <div class="min-w-0 flex-1">
         <h1 class="text-[19px] font-extrabold leading-tight tracking-tight">Assign Items</h1>
-        <p class="truncate text-[12px] font-medium text-brand-50/90">{{ splitMode === 'percent' ? 'Set each member’s share of the bill' : 'Pick a member, then tap what they shared' }}</p>
+        <p class="truncate text-[12px] font-medium text-brand-50/90">{{ splitMode === 'game' ? 'The game decided who pays' : splitMode === 'percent' ? 'Set each member’s share of the bill' : 'Pick a member, then tap what they shared' }}</p>
       </div>
       <span v-if="saving" class="text-[11px] font-semibold text-brand-50/80">Saving…</span>
     </div>
@@ -28,7 +28,25 @@ require __DIR__ . '/../partials/head.php';
 
   <spinner v-if="loading"></spinner>
   <div v-else class="flex-1 pb-4 pt-4">
-    <div class="mx-5 mb-3 grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white p-1 text-[12.5px] font-bold" role="radiogroup" aria-label="How to split">
+    <!-- Fun Mode: a game decided the split (pages/game.php) -->
+    <div v-if="splitMode === 'game'" class="tile mx-5 !border-fuchsia-200 !bg-fuchsia-50/60 p-4">
+      <p class="text-[11px] font-extrabold tracking-[.08em] text-fuchsia-700">🎉 FUN MODE</p>
+      <p class="mt-1 text-[15px] font-extrabold text-ink">{{ gameHeadline }}</p>
+      <p class="mt-0.5 text-[12px] text-slate-500">Of the whole bill: {{ peso(billTotal / 100) }}, with tax, service charge and discount.</p>
+      <div class="mt-3 space-y-1.5">
+        <div v-for="m in members" :key="m.id" class="flex items-center gap-2.5">
+          <avatar :user="m" :size="26"></avatar>
+          <span class="min-w-0 flex-1 truncate text-[13px] font-semibold">{{ m.id === me ? 'You' : m.name }}</span>
+          <span class="text-[13px] font-bold" :class="shares[m.id] < 0 ? 'text-emerald-600' : shares[m.id] === 0 ? 'text-slate-400' : 'text-ink'">{{ shares[m.id] < 0 ? 'gets ' + peso(-shares[m.id] / 100) : peso((shares[m.id] || 0) / 100) }}</span>
+        </div>
+      </div>
+      <div class="mt-4 grid grid-cols-2 gap-2">
+        <a :href="'game?bill=' + billId" class="btn btn-outline !border-fuchsia-400 !text-fuchsia-700 hover:!bg-fuchsia-50">Play again</a>
+        <button @click="setMode('items')" class="btn btn-ghost" :disabled="busy">Split normally</button>
+      </div>
+    </div>
+
+    <div v-else class="mx-5 mb-3 grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white p-1 text-[12.5px] font-bold" role="radiogroup" aria-label="How to split">
       <button @click="setMode('items')" role="radio" :aria-checked="splitMode === 'items'" :disabled="busy" class="rounded-xl py-2" :class="splitMode === 'items' ? 'bg-brand-600 text-white' : 'text-slate-500'">By items</button>
       <button @click="setMode('percent')" role="radio" :aria-checked="splitMode === 'percent'" :disabled="busy" class="rounded-xl py-2" :class="splitMode === 'percent' ? 'bg-brand-600 text-white' : 'text-slate-500'">By percentage</button>
     </div>
@@ -52,7 +70,11 @@ require __DIR__ . '/../partials/head.php';
       <p class="mt-3 text-[12px] font-semibold" :class="pctOk ? 'text-brand-600' : 'text-rose-500'">{{ pctMessage }}</p>
     </div>
 
-    <template v-else>
+    <template v-else-if="splitMode === 'items'">
+    <div v-if="bill.fun_mode" class="mx-5 mb-3 flex items-center justify-between rounded-2xl bg-fuchsia-50 px-3.5 py-2.5 text-[12.5px]">
+      <span class="font-semibold text-fuchsia-800">🎉 Fun Mode group</span>
+      <a :href="'game?bill=' + billId" class="font-bold text-fuchsia-700 underline">Let a game decide</a>
+    </div>
     <div class="no-scrollbar flex gap-2 overflow-x-auto px-5 pb-1">
       <button v-for="m in members" :key="m.id" @click="active = m.id" class="mchip" :class="{ on: m.id === active }">
         <avatar :user="m" :size="28"></avatar>{{ m.id === me ? 'You' : m.first }}
@@ -158,12 +180,10 @@ require __DIR__ . '/../partials/head.php';
         <input type="checkbox" v-model="interestOn" class="mt-0.5 h-4 w-4 shrink-0 accent-brand-600" />
         <span><b class="text-ink">Allow installments with interest</b><br />Anyone can pay in parts; each partial payment adds this % of what's still left.</span>
       </label>
-      <div v-if="plan.length && interestOn" class="mt-2 flex items-center gap-2 px-1 text-[13px]">
-        <span class="flex-1 text-slate-500">Interest after each partial payment</span>
-        <input v-model="interestRate" data-field="interest" inputmode="decimal" class="row-in !h-9 w-20 text-right" :class="{ 'is-invalid': interestError }" aria-label="Interest rate in percent" />
-        <span class="text-slate-400">%</span>
+      <div v-if="plan.length && interestOn" class="mt-2.5">
+        <p class="mb-1.5 px-1 text-[12px] font-semibold text-slate-500">Interest after each partial payment</p>
+        <rate-choice :rates="rates" v-model="interestRate"></rate-choice>
       </div>
-      <p v-if="plan.length && interestOn && interestError" class="field-error px-1">{{ interestError }}</p>
       <div class="mt-5 grid grid-cols-2 gap-3">
         <button @click="confirming = false" class="btn-pill btn-pill-soft">Back</button>
         <button @click="send" class="btn-pill btn-pill-primary" :disabled="busy">Start settling</button>
@@ -199,7 +219,8 @@ Setlo.mount({
     discountLabel: { none: '', senior: ' · Senior', pwd: ' · PWD' },
     // Percentage split: typed percents per member (strings), saved after a short pause.
     splitMode: 'items', pctDraft: {}, pctTimer: null,
-    interestOn: false, interestRate: '5',
+    // Installment interest: one of the fixed rates (INSTALLMENT_RATES), the lowest picked by default
+    interestOn: false, rates: <?= json_encode(INSTALLMENT_RATES) ?>, interestRate: <?= (int) INSTALLMENT_RATES[0]['rate'] ?>,
   }),
   computed: {
     /** Items under their receipt's title when the bill has several receipts (see Setlo.groupByReceipt). */
@@ -230,12 +251,25 @@ Setlo.mount({
       return `Adds up to ${this.pctTotal}% — make it 100% (${this.pctTotal < 100 ? gap + '% left' : gap + '% too much'})`;
     },
     interestError() {
-      const r = parseFloat(this.interestRate);
-      return !this.interestOn || (r > 0 && r <= 20) ? '' : 'Enter a rate above 0% and up to 20%.';
+      return !this.interestOn || this.rates.some((r) => r.rate === this.interestRate) ? '' : 'Choose one of the interest rates.';
     },
-    /** Mirrors the server's compute_shares() and compute_percent_shares(): cents per member, plus each member's discount. */
+    gameHeadline() {
+      const g = this.bill.game;
+      if (this.members.some((m) => m.game_share !== null && m.game_share !== undefined)) return (g && g.title ? g.title + ': ' : '') + 'the cards set everyone’s share';
+      const payers = this.members.filter((m) => m.game_weight !== 0);
+      const who = payers.length === 1 ? (payers[0].id === this.me ? 'You pay' : payers[0].first + ' pays') + ' the whole bill'
+        : payers.map((m) => (m.id === this.me ? 'You' : m.first)).join(', ') + ' split the bill';
+      return (g && g.title ? g.title + ': ' : '') + who;
+    },
+    /** Mirrors the server's compute_shares(), compute_percent_shares() and compute_game_shares(): cents per member, plus each member's discount. */
     calc() {
       const ids = this.members.map((m) => m.id);
+      if (this.splitMode === 'game') {
+        const fixed = this.members.some((m) => m.game_share !== null && m.game_share !== undefined);
+        const weights = Object.fromEntries(this.members.map((m) => [m.id, m.game_weight === null || m.game_weight === undefined ? 1 : m.game_weight]));
+        const shares = fixed ? Object.fromEntries(this.members.map((m) => [m.id, m.game_share || 0])) : splitProportional(this.billTotal, weights);
+        return { shares, discountBy: Object.fromEntries(ids.map((id) => [id, 0])) };
+      }
       if (this.splitMode === 'percent') {
         const weights = Object.fromEntries(this.members.map((m) => [m.id, Math.round((parseFloat(this.pctDraft[m.id]) || 0) * 100)]));
         const shares = this.pctOk ? splitProportional(this.billTotal, weights) : Object.fromEntries(ids.map((id) => [id, 0]));
@@ -267,6 +301,7 @@ Setlo.mount({
     await Setlo.load(this, 'bills.php', { id: this.billId }, (r, fresh) => {
       if (!r.me.is_creator || r.bill.locked) { location.replace('bill-items?bill=' + this.billId); return; }
       if (!r.items.length) { location.replace('review-items?bill=' + this.billId); return; }
+      if (fresh && r.bill.game_pending) { location.replace('game?bill=' + this.billId); return; }
       if (fresh && shown !== null && shown !== state()) return; // already tapping: keep their work
       this.bill = r.bill;
       this.members = r.members;
@@ -360,7 +395,7 @@ Setlo.mount({
     async finish() {
       if (this.splitMode === 'percent') {
         if (!this.pctOk) { Setlo.toast('The percentages must add up to 100%.'); return; }
-      } else if (this.unassignedCount) {
+      } else if (this.splitMode === 'items' && this.unassignedCount) {
         Setlo.toast('Assign ' + this.unassigned.map((it) => it.name).join(', ') + ' first');
         return;
       }
@@ -380,7 +415,7 @@ Setlo.mount({
     },
     async send() {
       if (this.plan.length && this.interestError) { Setlo.toast(this.interestError); return; }
-      const interest_rate = this.plan.length && this.interestOn ? parseFloat(this.interestRate) : null;
+      const interest_rate = this.plan.length && this.interestOn ? this.interestRate : null;
       const r = await Setlo.run(this, async () => {
         await this.persist();
         return api.post('bills.php', { action: 'start_settling', bill_id: this.billId, interest_rate });

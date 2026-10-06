@@ -31,7 +31,7 @@ require __DIR__ . '/../partials/head.php';
         <avatar v-for="m in g.members.slice(0, 4)" :key="m.id" :user="m" :size="30" ring></avatar>
       </div>
       <div class="min-w-0 flex-1">
-        <p class="truncate text-[14px] font-bold text-ink">{{ g.name }}</p>
+        <p class="flex items-center gap-1.5 text-[14px] font-bold text-ink"><span class="truncate">{{ g.name }}</span><span v-if="g.fun_mode" class="fun-badge">🎉 Fun</span></p>
         <p class="mt-0.5 text-[12px] text-slate-400">{{ g.members.length }} people · {{ g.bills }} bill{{ g.bills === 1 ? '' : 's' }}</p>
       </div>
       <svg class="h-4 w-4 text-slate-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>

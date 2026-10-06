@@ -1,11 +1,11 @@
 <?php
-// Image uploads (receipts, proof-of-payment screenshots).
+// Image uploads (receipts, proof-of-payment screenshots, profile pictures).
 // Files live under uploads/<kind>/, which is not web-accessible; they are served through the API after an access check.
 // (The Pay-me QR used to be an upload too; it's now generated client-side, see assets/js/ui.js qrSvg/qrPng.)
 
 declare(strict_types=1);
 
-const UPLOAD_KINDS = ['receipts', 'proofs'];
+const UPLOAD_KINDS = ['receipts', 'proofs', 'avatars'];
 
 function upload_dir(string $kind): string
 {

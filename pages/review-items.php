@@ -54,12 +54,12 @@ require __DIR__ . '/../partials/head.php';
     </div>
 
     <section v-for="g in groups" :key="g.key">
-      <!-- Several separate receipts: each gets a title ("Lunch", "Snacks - Cafe") that labels its items from here on -->
+      <!-- Several separate receipts: each gets a title (suggested by the scan) that labels its items from here on -->
       <div v-if="g.receipt && receipts.length > 1" class="mb-2 px-1">
         <div class="flex items-center gap-2">
           <span class="shrink-0 text-[13px] font-extrabold text-slate-500">{{ g.receipt.number }}.</span>
           <input :value="g.receipt.title || ''" @change="saveTitle(g.receipt, $event)" @keydown.enter.prevent="$event.target.blur()" maxlength="60"
-            :placeholder="'Title, e.g. ' + (g.receipt.number === 1 ? 'Lunch' : 'Snacks - Cafe')" class="row-in !h-9 min-w-0 flex-1 font-bold" :aria-label="'Title of receipt ' + g.receipt.number" />
+            :placeholder="g.receipt.store ? 'Title, e.g. ' + g.receipt.store : 'Add a title'" class="row-in !h-9 min-w-0 flex-1 font-bold" :aria-label="'Title of receipt ' + g.receipt.number" />
           <button v-if="g.receipt.photos.length" @click="showPhotos(g.receipt.photos)" class="shrink-0 text-[12px] font-bold text-brand-700">Photo{{ g.receipt.photos.length > 1 ? 's' : '' }}</button>
           <button @click="removeReceipt(g.receipt)" :disabled="busy" class="shrink-0 text-[12px] font-bold text-slate-400 hover:text-rose-500">Remove</button>
         </div>
@@ -88,6 +88,9 @@ require __DIR__ . '/../partials/head.php';
           <p v-if="rowErr(r)" class="field-error !mt-1">{{ rowErr(r) }}</p>
           <p v-if="r.details" class="mt-1.5 px-0.5 text-[11.5px] text-slate-500">Meal set · includes {{ r.details }}</p>
           <p v-if="r.renamedFrom" class="mt-1 px-0.5 text-[11px] text-slate-400">Printed: “{{ r.renamedFrom }}”</p>
+          <p v-if="money(r.promo) > 0" class="mt-1.5 px-0.5 text-[11.5px] font-semibold text-emerald-700">
+            <svg class="mb-px mr-0.5 inline h-3.5 w-3.5 align-middle" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12V4a1 1 0 011-1h8l9 9-9 9-9-9z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>Promo −{{ peso(money(r.promo)) }} <span class="font-medium text-slate-400">· printed {{ peso(lineTotal(r) + money(r.promo)) }} → {{ peso(lineTotal(r)) }} (price shown is after the promo)</span>
+          </p>
           <div class="mt-2 flex items-center justify-between gap-2 px-0.5 text-[11.5px]">
             <span v-if="r.needs_review" class="font-bold text-amber-600">⚠ {{ flagText(r) }}</span>
             <span v-else class="flex items-center gap-1 font-bold text-brand-600">
@@ -106,6 +109,10 @@ require __DIR__ . '/../partials/head.php';
           <div v-else-if="r.needs_review && r.dup_note" class="mt-2.5 grid grid-cols-2 gap-2">
             <button @click="resolve(r, false)" class="h-9 rounded-xl bg-brand-600 text-[12px] font-bold text-white">Keep it</button>
             <button @click="remove(r)" class="h-9 rounded-xl border border-amber-300 bg-white text-[12px] font-bold text-amber-700">Remove the repeat</button>
+          </div>
+          <div v-else-if="r.needs_review && money(r.promo) > 0" class="mt-2.5 grid grid-cols-2 gap-2">
+            <button @click="resolve(r, false)" class="h-9 rounded-xl bg-brand-600 text-[12px] font-bold text-white">Keep promo on item</button>
+            <button @click="promoToDiscount(r)" class="h-9 rounded-xl border border-amber-300 bg-white text-[12px] font-bold text-amber-700">Make it a bill discount</button>
           </div>
           <div v-else-if="r.needs_review" class="mt-2.5 grid gap-2" :class="r.renamedFrom ? 'grid-cols-2' : 'grid-cols-1'">
             <button @click="resolve(r, false)" class="h-9 rounded-xl bg-brand-600 text-[12px] font-bold text-white">Looks right</button>
@@ -231,6 +238,7 @@ Setlo.mount({
     flagText(r) {
       if (r.suggestion) return 'Looks like “' + r.suggestion + '”?';
       if (r.dup_note) return r.dup_note;
+      if (money(r.promo) > 0) return 'Promo found under this item — already taken off its price';
       return r.renamedFrom ? 'Renamed from the receipt code — is this right?' : 'Please double-check this item';
     },
     showPhotos(ids) {
@@ -242,6 +250,15 @@ Setlo.mount({
       if (useSuggestion) r.name = r.suggestion;
       r.needs_review = false;
       r.fixed = true;
+    },
+    /** The promo was for the whole receipt: the item goes back to its printed price and the amount to the bill discount. */
+    promoToDiscount(r) {
+      const promo = money(r.promo);
+      const qty = Number(r.qty) || 1;
+      r.unit_price = ((this.lineTotal(r) + promo) / qty).toFixed(2);
+      r.promo = 0;
+      this.discount = (money(this.discount) + promo).toFixed(2);
+      this.resolve(r, false);
     },
     usePrinted(r) {
       r.name = r.renamedFrom;
@@ -256,7 +273,7 @@ Setlo.mount({
       return Array.isArray(el) ? el[0] : el;
     },
     add() {
-      const r = { id: null, receipt_id: null, key: ++keySeq, name: '', qty: 1, unit_price: '', needs_review: false, source: 'manual', fixed: false, nudge: false };
+      const r = { id: null, receipt_id: null, key: ++keySeq, name: '', qty: 1, unit_price: '', promo: 0, needs_review: false, source: 'manual', fixed: false, nudge: false };
       this.rows.push(r);
       this.$nextTick(() => this.rowEl(r)?.querySelector('input')?.focus());
     },
@@ -284,7 +301,7 @@ Setlo.mount({
     payload() {
       return {
         bill_id: this.billId,
-        items: this.rows.map((x) => ({ id: x.id, name: x.name.trim(), qty: Number(x.qty), unit_price: money(x.unit_price), needs_review: !!x.needs_review })),
+        items: this.rows.map((x) => ({ id: x.id, name: x.name.trim(), qty: Number(x.qty), unit_price: money(x.unit_price), promo: money(x.promo || 0), needs_review: !!x.needs_review })),
         tax: money(this.tax), service_charge: money(this.svc), discount: money(this.discount),
         receipt_total: this.receiptTotal === '' ? null : money(this.receiptTotal),
       };

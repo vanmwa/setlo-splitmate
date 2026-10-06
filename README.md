@@ -97,6 +97,7 @@ Role is never fixed by who created the Bill — it's determined by who paid the 
 | My Settlements | You owe / you're owed, with Mark Paid / Confirm / Reject actions |
 | Settlement Audit Trail | Timestamp for "marked paid" vs. "confirmed" per settlement |
 | Notifications | Dropdown panel, not a full page |
+| Fun Mode Game | Game Options → (lobby) → play → result, for bills from a Fun Mode group (`pages/game`) |
 
 ## 8. Key Design Decisions
 
@@ -130,11 +131,13 @@ Role is never fixed by who created the Bill — it's determined by who paid the 
 - `receipt_items` (extracted/corrected item name, price, quantity; which receipt it came from)
 - `item_assignments` (which member(s) each item is assigned to)
 - `settlements` (sender, receiver, amount owed incl. any installment interest, amount paid so far, status, timestamps for paid/confirmed)
-- `settlement_payments` (each part of a payment: amount, method, who paid it — the debtor or someone paying for them — and its confirm/reject status)
+- `settlement_payments` (each part of a payment: amount, method, who paid it — the debtor or someone paying for them — and its confirm/reject status; online parts also record the PayMongo channel used — card (with brand and last 4 digits), GCash or Maya)
 - `credits` (cash paid over a debt and kept by the receiver; it pays the payer's next debts to them)
-- `user_groups`, `user_group_members` (saved groups that bills start from; bills.group_id links them)
+- `user_groups`, `user_group_members` (saved groups that bills start from; bills.group_id links them; `user_groups.fun_mode` turns on games)
+- `game_sessions`, `game_players` (Fun Mode games: the server-held state, deadline and version, plus each player's answer or basket, race clock, or card); a game's result is saved as `bills.split_mode = 'game'` with `bill_members.game_weight` (who shares the bill) or, for Mystery Card, `bill_members.game_share` (each member's exact share). Changing the receipt afterwards voids the result and offers the game again
 - Utang (money lent or borrowed outside a bill) is a two-person `bills` row with `kind = 'loan'`, paid back through a normal settlement
 - `notifications`
+- `user_achievements` (one-time badges per user: when earned, whether its pop-up was seen, hidden or shown); `users.featured_achievement` is the title shown next to their name
 
 ## 10. Demo Scenario (fixed for consistency across mockups and defense)
 
@@ -157,12 +160,13 @@ Role is never fixed by who created the Bill — it's determined by who paid the 
 ## 12. Acknowledged Limitations
 
 - OCR accuracy varies by receipt condition (faded thermal paper, unusual layouts); mitigated by a mandatory review/edit step, not solved outright.
-- Receipt scanning needs an internet connection and is subject to the Gemini API free-tier rate/daily limits; when it fails, the photo is kept and items are entered manually (the offline "Load demo receipt" remains as a demo backup).
+- Receipt scanning needs an internet connection and is subject to the Gemini API free-tier rate/daily limits; when it fails, the photo is kept and items are entered manually.
 - On the Gemini API free tier, Google may use submitted content to improve its products, so receipt photos should not be treated as private.
 - No automatic money transfer — Setlo tracks and verifies settlement status, it does not move funds.
 - No reminder/timeout mechanism if a receiver never confirms a payment.
 - Non-food expense types (trips, transport, accommodation) are out of scope for this build.
 - Dispute handling is intentionally simple, not a full resolution workflow.
+- Shared live screens (Fun Mode games) update every 1–2 s by polling, not instantly.
 ## Login & sign-up landing
 
 - Guests land on `pages/login`; the old splash page redirects there. Log in and **Create account** share one design: brand and features on the left, the card in the middle, an illustrative phone on the right. The side columns hide on smaller screens.
@@ -188,3 +192,51 @@ Role is never fixed by who created the Bill — it's determined by who paid the 
 - **Undo a mistake in the code:** `git status` shows what changed, `git restore <file>` puts a file back as of the last backup, and `git log` lists every backup.
 - **Restore the database:** `C:\xampp\mysql\bin\mysql -u root setlo < backups\setlo_<date>.sql`
 - Everything is still on one disk: copy the SplitMate folder, including `backups\`, to a USB drive or Google Drive now and then.
+
+## Achievements
+
+One-time badges, defined in `includes/achievements.php` and checked when a bill starts settling and whenever a payment is confirmed. Whoever's action earns a badge sees its pop-up right away; anyone else who earned it gets a notification and sees the pop-up on their next dashboard visit. On the profile, each badge can be reopened, hidden from others, or starred as the title shown next to your name.
+
+| Badge | Earned when |
+|---|---|
+| 🧾 Itemalizer | You created 3 item-by-item bills that reached settling |
+| 🪙 Kuripot | You alone had the smallest share of a bill (ties don't count) |
+| 🍔 Glutton | Your share of one bill was ₱1,000 or more |
+| 🤝 1, 2, 3 | Someone else paid towards your share |
+| 💚 Samaritan | You paid someone's whole share as a treat |
+| 🎭 Split Personality | You paid one debt in parts using 2+ payment methods |
+| 💰 Debt Collector | You received money you were owed |
+| 🧼 Clean Slate | You paid off your last open debt |
+| 🧮 Human Calculator | Fastest correct total in Receipt Race (ties all win) |
+| 🎯 Bullseye | Closest to the target without going over (ties all win) |
+| 🌟 Main Character | The roulette picked your wallet to pay the whole bill |
+
+## Fun Mode
+
+The person who made a saved group can switch **Fun Mode** on from the group page. Once it's on, the group's page, bills and the bill-detail header turn festive. Bills started from the group then open a **Game Options** screen after the receipt review, before Assign Items. The creator picks a game and how to play it:
+
+- **📱 One phone:** the phone is passed around the table. Each player taps their own button before their turn shows: "Go" in Receipt Race, "I'm …" in Closest.
+- **👥 Everyone's phone:** the other members get a notification and join a lobby. The creator plays for guests.
+
+| Game | Result |
+|---|---|
+| 🏁 Receipt Race | Everyone gets the same 2–3 random receipt items, each with a random quantity (1–3), plus a charge (VAT or service charge) and sometimes a discount, as % of those items' subtotal. One answer each, within ₱1 counts. The fastest correct total pays nothing (🧮 Human Calculator). The server times it: live, everyone starts together when the host begins; on one phone, each clock starts at that player's Go. 90 s limit |
+| 🎯 Closest Without Going Over | A random target (30–80% of the receipt's item subtotal). Each player builds a basket of receipt items, up to the quantity bought, with no running total shown. The highest basket at or under the target pays nothing (🎯 Bullseye); going over is out. Live: 90 s |
+| 🎡 Roulette | Players drop out one at a time, every 2.5 s. The last one standing pays the whole bill ("Your wallet has been selected", 🌟 Main Character) |
+| 🃏 Mystery Card | Starts from an equal split. Each player picks a face-down card, which flips at once and then greys out so nobody else can take it. There are 8 cards for 2–8 players and one per player above that: all seven below plus repeats of 💰, 🛡️ and 🎁, so every card can turn up. The seven: 💰 Lucky You (₱X off your share), 🔄 Pick a Payer (someone pays your share), 🎁 Cash Grab (₱10 from every other player), 🛡️ Shield (no other card can raise your share), 🔀 Swap (trade final shares with someone), 💥 Double Trouble (+₱X on someone, off yours) and 👑 Free Pass (pay ₱0). 🔄, 🔀 and 💥 holders pick their player as soon as the card flips. If that player later draws 🛡️ or 👑, the card is blocked. X is about a quarter of an equal share, rounded to ₱5. The cards resolve in a fixed order: 👑 → 💰 → 🎁 → 💥 → 🔄 → 🔀. 🛡️ and 👑 holders already known can't be picked, and nobody can charge them more, and a guest is never left owed money. Live: 45 s to pick (late players get a random card), 30 s for anyone dealt a 🔄 / 🔀 / 💥 at the deadline to pick (otherwise the deck picks) |
+
+- **Shuffles, knock-out order and deals** are all chosen on the server with `random_int`.
+- **The result** becomes the split (`split_mode = 'game'`). Assign Items shows it, with **Play again** and **Split normally** buttons. Settling then works as usual.
+- **Skip — split normally** is always offered.
+- **Race and Closest outcome:** the winners pay nothing and everyone else splits the bill equally. If nobody wins, or everyone ties, it's a normal split.
+- **Rules and API:** the rules are in `includes/games.php`, the API in `api/games.php`.
+
+## Real-time screens (short polling)
+
+For screens every group member sees at once (the Fun Mode games in live mode), each browser polls the server every 1–2 s, the same way the notification bell polls. It works on any PHP host and a 1–2 s delay is fine for a small group taking turns. A push service (Pusher/Ably) or a WebSocket server can replace polling later without changing the rules below.
+
+- The server holds the true state (`status`, `round`, `deadline_at`, `version`); screens only draw it, so a refresh or late join shows the right screen.
+- Countdowns run to the server's `deadline_at`, never the phone's clock.
+- Answers (race totals, baskets) are only sent to others after the reveal.
+- Whichever request arrives after the deadline moves the game on with `UPDATE … WHERE version = ?`, so it happens once and needs no cron job.
+- An unchanged poll returns a tiny reply, and polling pauses while the tab is hidden.

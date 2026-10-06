@@ -6,36 +6,16 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/gemini.php';
 
-// Sample receipt used by the "Load demo receipt" option (matches the README demo scenario).
-// Works offline, as a backup for live demos. Shows each review case: a misread (item 2), abbreviations turned into
-// plain names (items 1, 4, 5) and a meal set with its contents (item 3). Every renamed row is flagged for checking.
-// Loading it twice into one bill shows the duplicate-transaction and repeated-item flags.
-const DEMO_RECEIPT = [
-    'items' => [
-        ['name' => 'Chicken Inasal',                   'printed_name' => 'Chkn Inasal',  'qty' => 2, 'unit_price' => 179.00, 'needs_review' => true,  'suggestion' => null, 'details' => null],
-        ['name' => 'Bangus Sisig',                     'printed_name' => 'Banaus 5is1g', 'qty' => 1, 'unit_price' => 149.00, 'needs_review' => true,  'suggestion' => null, 'details' => null],
-        ['name' => 'Meal set PM2',                     'printed_name' => 'PM2',          'qty' => 1, 'unit_price' => 135.00, 'needs_review' => true,  'suggestion' => null, 'details' => 'Pork BBQ, Rice, Iced Tea'],
-        ['name' => 'Halo-Halo, Regular with Ice Cream', 'printed_name' => 'Halo Reg W I.C', 'qty' => 2, 'unit_price' => 89.00, 'needs_review' => true, 'suggestion' => null, 'details' => null],
-        ['name' => 'Iced Tea (Large)',                 'printed_name' => 'IcedTea LRG',  'qty' => 4, 'unit_price' => 65.00,  'needs_review' => true,  'suggestion' => null, 'details' => null],
-        ['name' => 'Buko Pandan',                      'printed_name' => 'Buko Pandan',  'qty' => 1, 'unit_price' => 70.00,  'needs_review' => false, 'suggestion' => null, 'details' => null],
-    ],
-    'store_name'     => 'Mang Inasal',
-    'receipt_no'     => '00042871',
-    'txn_date'       => '2026-10-02 12:41',
-    'subtotal'       => 1150.00,
-    'tax'            => 55.00,
-    'service_charge' => 35.00,
-    'discount'       => 0.0,
-    'total'          => 1240.00,
-    'raw_text'       => "MANG INASAL\nGuadalupe Branch\nOR# 00042871   2026-10-02 12:41\n--------------------------------\n2x Chkn Inasal 358.00\n1x Banaus 5is1g 149.00\n1x PM2 135.00\n   Pork BBQ\n   Rice\n   Iced Tea\n2x Halo Reg W I.C 178.00\n4x IcedTea LRG 260.00\n1x Buko Pandan 70.00\n--------------------------------\nSUBTOTAL 1,150.00\nTAX 55.00\nSVC CHARGE 35.00\nTOTAL 1,240.00\nCASH 1,500.00\nCHANGE 260.00",
-];
-
 const RECEIPT_PROMPT = <<<'TXT'
 You are reading photos of restaurant or food receipts from the Philippines. Amounts are in pesos.
 
 Return receipts: one entry per separate receipt you can see. If a photo shows two or more receipts side by side
 or overlapping, return each one separately; never combine two receipts into one. For each receipt:
 - store_name: the store/restaurant name as printed (without the branch), or "" if not visible.
+- title: a short name (1-4 words) for this purchase, to tell it apart from the group's other receipts. Base it on
+  the meal and the time printed (Breakfast, Lunch, Merienda, Dinner, Coffee, Snacks, Drinks, Dessert, Groceries)
+  and the store in plain words, e.g. "Lunch - Mang Inasal", "Coffee - Starbucks", "Merienda". Never include item
+  or meal codes (letter and number combos like C1, PM2, B12, 2PC), receipt numbers, prices or dates.
 - receipt_no: the receipt, invoice, OR or transaction number as printed, or "" if none.
 - date_time: the date and time printed, as YYYY-MM-DD HH:MM (or just YYYY-MM-DD), or "" if none.
 - raw_text: the receipt text transcribed line by line, top to bottom, starting with the store/restaurant name.
@@ -56,15 +36,24 @@ or overlapping, return each one separately; never combine two receipts into one.
   Lines under a set with their own price (upgrades, add-ons) are separate items. Otherwise is_meal_set=false
   and set_contents=[]. Skip instruction lines like "No onions" or "Less ice".
   Set unclear=true when the printed name is smudged, cut off or ambiguous, or you are guessing plain_name.
+  Item promos: a negative amount printed directly under an item line (e.g. "-57.50", "57.50-", "(57.50)", often
+  labelled PROMO, DISC, LESS, B1T1, xx% OFF, VOUCHER) belongs to that item. Put it in that item's promo as a
+  positive number and keep the item's line_total as printed BEFORE the promo; never list the promo line as an item.
+  If several promo lines sit under one item, add them up. promo is 0 when the item has none.
 - subtotal, total: as printed, or null if missing.
 - tax: the VAT / tax amount printed, whether added on top or already included in the prices (0 if none).
 - service_charge: service charge amounts (0 if none).
-- discount: senior citizen, PWD, promo discounts and "LESS VAT" amounts, as a positive number (0 if none).
+- discount: senior citizen, PWD, whole-receipt promo discounts and "LESS VAT" amounts printed with the totals, as a
+  positive number (0 if none). Do not include item promos already given under an item.
 
 Do not list payment and change lines (CASH, CHANGE, TENDER, CARD, GCASH, MAYA), VATABLE / VAT-EXEMPT / ZERO-RATED
 breakdown lines, subtotals, taxes, service charges or discounts as items.
 If a photo is not a receipt, return no receipt for it.
 TXT;
+
+// Names of lines that are a promo on the item above, not an item ("PROMO DISC", "LESS 10%", "20% OFF"). Kept narrow so
+// real items aren't caught ("B1T1 Burger", "Less Sugar Tea"); a promo printed as a negative amount is caught by its sign.
+const PROMO_LINE = '/^\s*(?:(?:promo|item)\s*disc\w*|disc(?:ount)?|void|voucher|coupon|markdown)\b|^\s*less\s*(?:\d|disc|promo)|\b\d{1,3}\s*%\s*off\b/i';
 
 // Added to the prompt when several photos are sections of one long receipt.
 const RECEIPT_PARTS_PROMPT = <<<'TXT'
@@ -77,6 +66,7 @@ const RECEIPT_SCHEMA = [
     'type'       => 'OBJECT',
     'properties' => [
         'store_name' => ['type' => 'STRING'],
+        'title'      => ['type' => 'STRING'],
         'receipt_no' => ['type' => 'STRING'],
         'date_time'  => ['type' => 'STRING'],
         'raw_text'   => ['type' => 'STRING'],
@@ -89,11 +79,12 @@ const RECEIPT_SCHEMA = [
                     'plain_name'      => ['type' => 'STRING'],
                     'qty'             => ['type' => 'INTEGER'],
                     'line_total'      => ['type' => 'NUMBER'],
+                    'promo'           => ['type' => 'NUMBER'],
                     'unclear'         => ['type' => 'BOOLEAN'],
                     'is_meal_set'     => ['type' => 'BOOLEAN'],
                     'set_contents'    => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
                 ],
-                'required'   => ['name_as_printed', 'plain_name', 'qty', 'line_total', 'unclear', 'is_meal_set', 'set_contents'],
+                'required'   => ['name_as_printed', 'plain_name', 'qty', 'line_total', 'promo', 'unclear', 'is_meal_set', 'set_contents'],
             ],
         ],
         'subtotal'       => ['type' => 'NUMBER', 'nullable' => true],
@@ -102,7 +93,7 @@ const RECEIPT_SCHEMA = [
         'discount'       => ['type' => 'NUMBER'],
         'total'          => ['type' => 'NUMBER', 'nullable' => true],
     ],
-    'required'   => ['store_name', 'receipt_no', 'date_time', 'raw_text', 'items', 'tax', 'service_charge', 'discount'],
+    'required'   => ['store_name', 'title', 'receipt_no', 'date_time', 'raw_text', 'items', 'tax', 'service_charge', 'discount'],
 ];
 
 const RECEIPTS_SCHEMA = [
@@ -115,7 +106,7 @@ const RECEIPTS_SCHEMA = [
  * Read receipt photos into one entry per receipt found. Usually one photo (which may show several receipts); with
  * $partsOfOne, several photos that are sections of one long receipt, which always gives at most one receipt.
  * @return list<array{items: array, subtotal: ?float, tax: float, service_charge: float, discount: float, total: ?float,
- *                    raw_text: string, store_name: string, receipt_no: string, txn_date: string}>
+ *                    raw_text: string, store_name: string, title: string, receipt_no: string, txn_date: string}>
  * @throws GeminiException
  */
 function scan_receipt(array $imagePaths, bool $partsOfOne = false): array
@@ -141,7 +132,7 @@ function merge_receipt_parts(array $parts): array
     foreach (array_slice($parts, 1) as $p) {
         $out['items'] = array_merge($out['items'], $p['items']);
         $out['raw_text'] = trim($out['raw_text'] . "\n" . $p['raw_text']);
-        foreach (['store_name', 'receipt_no', 'txn_date'] as $k) {
+        foreach (['store_name', 'title', 'receipt_no', 'txn_date'] as $k) {
             $out[$k] = $out[$k] ?: $p[$k];
         }
         foreach (['subtotal', 'total'] as $k) {
@@ -170,6 +161,19 @@ function parse_receipt($data): array
         if ($printed === '' || !$lineTotal) {
             continue;
         }
+        // A promo line read as an item of its own (negative, or named like a discount): it comes off the item above.
+        $negative = is_numeric($it['line_total']) && (float) $it['line_total'] < 0;
+        if ($negative || preg_match(PROMO_LINE, $printed)) {
+            if ($items) {
+                $last = &$items[count($items) - 1];
+                // Unless the scanner already put this same amount in that item's promo.
+                if (cents($last['promo']) !== cents($lineTotal)) {
+                    $last['promo'] = round($last['promo'] + $lineTotal, 2);
+                }
+                unset($last);
+            }
+            continue;
+        }
         $qty = max(1, min(99, (int) ($it['qty'] ?? 1)));
         $name = $clean($it['plain_name'] ?? '', 120) ?: $printed;
         $contents = array_values(array_filter(array_map(fn ($c) => $clean($c, 60), (array) ($it['set_contents'] ?? []))));
@@ -178,7 +182,8 @@ function parse_receipt($data): array
             'name'         => $name,
             'printed_name' => $printed,
             'qty'          => $qty,
-            'unit_price'   => round($lineTotal / $qty, 2),
+            'line_total'   => $lineTotal,
+            'promo'        => $amount($it['promo'] ?? null) ?? 0.0,
             // Renamed, unclear, or a meal set whose contents aren't listed: the user checks it on Review.
             'needs_review' => !empty($it['unclear']) || $key($name) !== $key($printed) || ($isSet && !$contents),
             'suggestion'   => null,
@@ -186,16 +191,48 @@ function parse_receipt($data): array
         ];
     }
 
+    // The price is what was actually paid for the line: printed amount less its promo (a promo can't go below free).
+    // Promos are always flagged, so the user confirms the item they came off.
+    $promos = 0;
+    foreach ($items as &$item) {
+        $item['promo'] = min($item['promo'], $item['line_total']);
+        $item['unit_price'] = round(($item['line_total'] - $item['promo']) / $item['qty'], 2);
+        $item['needs_review'] = $item['needs_review'] || $item['promo'] > 0;
+        $promos += cents($item['promo']);
+        unset($item['line_total']);
+    }
+    unset($item);
+
+    // Item promos counted again in the receipt's discount would be taken off twice.
+    $discount = $amount($data['discount'] ?? null) ?? 0.0;
+    if ($promos && abs(cents($discount) - $promos) <= 1) {
+        $discount = 0.0;
+    }
+
     return [
         'items'          => $items,
         'subtotal'       => $amount($data['subtotal'] ?? null),
         'tax'            => $amount($data['tax'] ?? null) ?? 0.0,
         'service_charge' => $amount($data['service_charge'] ?? null) ?? 0.0,
-        'discount'       => $amount($data['discount'] ?? null) ?? 0.0,
+        'discount'       => $discount,
         'total'          => $amount($data['total'] ?? null),
         'raw_text'       => trim((string) ($data['raw_text'] ?? '')),
         'store_name'     => $clean($data['store_name'] ?? '', 120),
+        'title'          => mb_substr(strip_codes($clean($data['title'] ?? '', 120)), 0, 60),
         'receipt_no'     => $clean($data['receipt_no'] ?? '', 60),
         'txn_date'       => $clean($data['date_time'] ?? '', 40),
     ];
+}
+
+/**
+ * Drop menu / meal codes ("C1", "PM2", "#B12", "(2PC)") and long numbers from a suggested title, in case the scanner
+ * kept them: "Lunch - C1 Mang Inasal" -> "Lunch - Mang Inasal". Words with no digit, like "7-Eleven", stay.
+ */
+function strip_codes(string $s): string
+{
+    $s = preg_replace('/[#(\[]*\b(?:(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z])[a-z0-9]{2,6}|\d{3,})\b[)\]]*/i', ' ', $s);
+    $s = preg_replace('/\s+/', ' ', $s);
+    // Separators left with nothing on one side ("Lunch - ", "Lunch - - Cafe").
+    $s = preg_replace('/(\s*[-–·,|\/:])+(?=\s*[-–·,|\/:])/u', '', $s);
+    return trim(preg_replace('/^[\s\-–·,|\/:]+|[\s\-–·,|\/:]+$/u', '', $s));
 }

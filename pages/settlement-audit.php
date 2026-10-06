@@ -46,7 +46,7 @@ require __DIR__ . '/../partials/head.php';
       <div class="mb-5 space-y-2">
         <div v-for="p in s.payments" :key="p.id" class="tile flex items-center justify-between gap-3 p-3 text-[13px]">
           <span class="min-w-0 text-slate-600">
-            <b class="text-slate-800">{{ peso(p.amount) }}</b> · {{ methodName[p.method] }} · {{ statusName[p.status] }}
+            <b class="text-slate-800">{{ peso(p.amount) }}</b> · {{ methodWithVia(p, methodName) }} · {{ statusName[p.status] }}
             <span v-if="p.paid_by.id !== s.from.id" class="block text-[12px]">Paid by {{ who(p.paid_by) }}{{ p.pay_back ? ', to be paid back' : '' }}</span>
             <span class="block break-all text-[12px] text-slate-400">{{ fmtDateTime(p.created_at) }}{{ p.payment_ref ? ' · Ref no. ' + p.payment_ref : '' }}</span>
           </span>
@@ -107,7 +107,7 @@ Setlo.mount({
       disputed: 'bg-red-500 ring-red-100', resent: 'bg-sky-500 ring-sky-100', nudged: 'bg-slate-500 ring-slate-100',
       interest: 'bg-orange-500 ring-orange-100', covered: 'bg-violet-500 ring-violet-100',
     },
-    methodName: { online: 'Online (PayMongo)', transfer: 'Transfer', cash: 'Cash', credit: 'Credit (extra cash kept earlier)' },
+    methodName: { online: 'Online (PayMongo)', transfer: 'Transfer', cash: 'Cash', credit: 'Kept change (extra cash from earlier)' },
     statusName: { awaiting: 'waiting for confirmation', confirmed: 'received', rejected: 'rejected' },
   }),
   async mounted() {

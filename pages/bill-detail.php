@@ -13,11 +13,11 @@ require __DIR__ . '/../partials/head.php';
 ?>
 <div id="app" class="device" v-cloak>
 
-  <div class="app-hero px-5 pb-5 pt-8">
+  <div class="app-hero px-5 pb-5 pt-8" :class="{ 'fun-hero': bill && bill.fun_mode }">
     <div class="flex items-center gap-3">
       <?php require __DIR__ . '/../partials/back.php'; ?>
       <div class="min-w-0 flex-1">
-        <h1 class="truncate text-[19px] font-extrabold leading-tight tracking-tight">{{ bill ? bill.name : '' }}</h1>
+        <h1 class="flex items-center gap-2 text-[19px] font-extrabold leading-tight tracking-tight"><span class="truncate">{{ bill ? bill.name : '' }}</span><span v-if="bill && bill.fun_mode" class="fun-chip">🎉 Fun</span></h1>
         <p v-if="bill" class="text-[12px] font-medium text-brand-50/90">Created by {{ d.me.is_creator ? 'You' : creator.first }} · {{ fmtDate(bill.created_at) }}</p>
       </div>
       <status-pill v-if="bill" :status="bill.status"></status-pill>
@@ -37,7 +37,7 @@ require __DIR__ . '/../partials/head.php';
         <div v-for="m in d.members" :key="m.id" class="flex items-center gap-3 p-3.5">
           <button @click="showPerson(m.id)" class="shrink-0 rounded-full" :aria-label="'About ' + m.name"><avatar :user="m" :size="36"></avatar></button>
           <div class="min-w-0 flex-1">
-            <p class="text-sm font-semibold text-ink"><button @click="showPerson(m.id)" class="text-left hover:underline">{{ m.name }}</button> <span v-if="m.is_guest" class="pill pill-draft">Guest</span>
+            <p class="text-sm font-semibold text-ink"><button @click="showPerson(m.id)" class="text-left hover:underline">{{ m.name }}</button> <status-badge :badge="m.badge"></status-badge> <span v-if="m.is_guest" class="pill pill-draft">Guest</span>
               <span v-if="m.id === me || m.id === bill.creator_id" class="text-[10px] font-medium text-brand-600">({{ [m.id === me ? 'You' : '', m.id === bill.creator_id ? 'Creator' : ''].filter(Boolean).join(' · ') }})</span>
             </p>
             <p class="text-xs text-slate-400">
@@ -172,7 +172,7 @@ require __DIR__ . '/../partials/head.php';
         <div v-for="it in g.items" :key="it.id" class="flex items-center justify-between gap-3 p-3.5">
           <div class="min-w-0">
             <p class="text-sm font-medium">{{ it.name }}{{ it.qty > 1 ? ' ×' + it.qty : '' }}</p>
-            <p class="text-xs text-slate-400">{{ it.who.length ? it.who.map((id) => memberMap[id].first).join(', ') : bill.split_mode === 'percent' ? 'Split by percentage' : 'Unassigned' }}</p>
+            <p class="text-xs text-slate-400">{{ it.who.length ? it.who.map((id) => memberMap[id].first).join(', ') : bill.split_mode === 'percent' ? 'Split by percentage' : bill.split_mode === 'game' ? 'Decided by a game' : 'Unassigned' }}</p>
           </div>
           <p class="shrink-0 text-sm font-semibold">{{ peso(it.line_total) }}</p>
         </div>
@@ -193,6 +193,9 @@ require __DIR__ . '/../partials/head.php';
       <div v-if="bill.split_mode === 'percent'" class="flex justify-between"><span class="text-slate-500">Split</span>
         <span class="font-semibold" :class="bill.percent_total === 100 ? 'text-emerald-600' : 'text-rose-500'">By percentage{{ bill.percent_total === 100 ? ' ✓' : ' · ' + bill.percent_total + '% set' }}</span>
       </div>
+      <div v-else-if="bill.split_mode === 'game'" class="flex justify-between"><span class="text-slate-500">Split</span>
+        <span class="font-semibold text-fuchsia-600">{{ bill.game ? bill.game.title : '🎉 Fun Mode game' }}</span>
+      </div>
       <div v-else class="flex justify-between"><span class="text-slate-500">Fully assigned</span>
         <span class="font-semibold" :class="d.unassigned_count ? 'text-rose-500' : 'text-emerald-600'">{{ d.unassigned_count ? peso(d.unassigned) + ' left' : 'Yes ✓' }}</span>
       </div>
@@ -205,9 +208,19 @@ require __DIR__ . '/../partials/head.php';
       <a :href="'assign-items.php?bill=' + billId" class="btn btn-primary">Assign items</a>
       <button @click="remove" class="btn btn-ghost col-span-2 !text-rose-600">Delete this bill</button>
     </div>
-    <div v-else-if="bill.locked && d.me.is_creator" class="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
-      <p class="text-xs text-slate-500"><b class="text-slate-700">Editing locked.</b> This bill has entered {{ bill.status === 'closed' ? 'Closed' : 'Settling' }} — item assignments can't be changed, so in-progress settlements are never silently invalidated.</p>
+    <!-- Settling but nobody has paid yet: the creator can still undo a mistake -->
+    <div v-else-if="bill.locked && d.me.is_creator && !bill.money_moved" class="tile p-3.5">
+      <p class="text-[13px] font-extrabold text-ink">Made a mistake?</p>
+      <p class="mt-0.5 text-[12px] text-slate-500">Nobody has paid yet, so you can take the settlement plan back and fix the bill, or delete it. Everyone on it is told.</p>
+      <div class="mt-3 grid grid-cols-2 gap-2">
+        <button @click="reopen" class="btn btn-outline btn-sm" :disabled="busy">Fix the bill</button>
+        <button @click="remove" class="btn btn-danger btn-sm" :disabled="busy">Delete bill</button>
+      </div>
     </div>
+    <div v-else-if="bill.locked && d.me.is_creator" class="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+      <p class="text-xs text-slate-500"><b class="text-slate-700">Editing locked.</b> Payments have been made on this bill, so it stays as their record. {{ bill.status === 'closed' ? 'Archive it to clear it from your lists.' : 'Once everything is settled you can archive it.' }}</p>
+    </div>
+    <button v-if="bill.status === 'closed'" @click="toggleArchive" class="btn btn-ghost w-full" :disabled="busy">{{ bill.archived ? 'Unarchive this bill' : 'Archive this bill' }}</button>
     </div>
   </div>
 
@@ -338,10 +351,17 @@ Setlo.mount({
       await Setlo.run(this, async () => { await api.post('bills.php', { action: 'set_payer', bill_id: this.billId, user_id: Number(id) }); await this.load(); });
     },
     async remove() {
-      if (!(await Setlo.confirm({ title: 'Delete this bill?', text: 'It will be removed for everyone. This cannot be undone.', confirmText: 'Delete bill', danger: true }))) return;
+      const text = this.bill.locked ? 'The bill and its settlement plan are removed for everyone, and they’re told. This cannot be undone.' : 'It will be removed for everyone. This cannot be undone.';
+      if (!(await Setlo.confirm({ title: 'Delete this bill?', text, confirmText: 'Delete bill', danger: true }))) return;
       const r = await Setlo.run(this, () => api.post('bills.php', { action: 'delete', bill_id: this.billId }));
       if (r) location.href = r.redirect;
     },
+    async reopen() {
+      if (!(await Setlo.confirm({ title: 'Take back the settlement plan?', text: 'The payments asked for are removed and the bill opens for editing again. Everyone on it is told.', confirmText: 'Fix the bill' }))) return;
+      const r = await Setlo.run(this, () => api.post('bills.php', { action: 'reopen', bill_id: this.billId }));
+      if (r) location.href = r.redirect;
+    },
+    toggleArchive() { return Setlo.toggleArchive(this.bill); },
   },
 });
 </script>

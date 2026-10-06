@@ -14,14 +14,18 @@ require __DIR__ . '/../partials/head.php';
       <h1 class="text-[21px] font-extrabold tracking-tight">My Bills</h1>
     </div>
     <div class="seg mt-5">
-      <button v-for="f in filters" :key="f" :class="{ on: filter === f }" @click="filter = f">{{ f[0].toUpperCase() + f.slice(1) }}</button>
+      <button v-for="f in filters" :key="f" :class="{ on: filter === f && !archivedView }" @click="filter = f; archivedView = false">{{ f[0].toUpperCase() + f.slice(1) }}</button>
     </div>
   </div>
 
   <div class="flex-1 px-5 pb-6 pt-4">
     <spinner v-if="loading"></spinner>
     <template v-else>
-      <p class="mb-3 text-[12px] font-medium text-slate-500">{{ shown.length }} {{ shown.length === 1 ? 'bill' : 'bills' }} · {{ peso(shownTotal) }} total</p>
+      <div class="mb-3 flex items-baseline justify-between gap-2">
+        <p class="text-[12px] font-medium text-slate-500"><b v-if="archivedView" class="text-ink">Archived · </b>{{ shown.length }} {{ shown.length === 1 ? 'bill' : 'bills' }} · {{ peso(shownTotal) }} total</p>
+        <button v-if="archivedView" @click="archivedView = false" class="text-[12px] font-bold text-brand-700">← Back to bills</button>
+        <button v-else-if="archivedCount" @click="openArchived" class="text-[12px] font-bold text-slate-500 hover:text-brand-700">Archived · {{ archivedCount }}</button>
+      </div>
       <div v-if="!shown.length" class="tile p-6 text-center">
         <p class="text-sm font-bold text-ink">No bills here yet</p>
         <p class="mt-1 text-[12px] text-slate-400">Tap + to create a bill and scan the receipt.</p>
@@ -71,7 +75,7 @@ require __DIR__ . '/../partials/head.php';
           <p class="field-label">Start from a group</p>
           <div class="flex flex-wrap gap-2">
             <button v-for="g in groups" :key="g.id" type="button" @click="useGroup(g)" class="pill !px-3 !py-1.5 !text-[12px]"
-              :class="form.group_id === g.id ? 'bg-brand-600 text-white' : 'border border-slate-200 bg-white text-slate-600'">{{ g.name }} · {{ g.members.length }}</button>
+              :class="form.group_id === g.id ? 'bg-brand-600 text-white' : 'border border-slate-200 bg-white text-slate-600'"><span v-if="g.fun_mode">🎉 </span>{{ g.name }} · {{ g.members.length }}</button>
           </div>
         </div>
         <div>
@@ -119,7 +123,7 @@ Setlo.mount({
   mixins: [Setlo.validation],
   data: () => ({
     me: <?= (int) $user['id'] ?>,
-    loading: true, busy: false, bills: [],
+    loading: true, busy: false, bills: [], archived: [], archivedCount: 0, archivedView: false,
     filters: ['all', 'active', 'settling', 'closed'], filter: 'all',
     // ?new=1 opens the Create Bill sheet in the very first paint (no pop-in on refresh)
     creating: new URLSearchParams(location.search).has('new'), search: '', results: [], timer: null,
@@ -129,6 +133,7 @@ Setlo.mount({
   }),
   computed: {
     shown() {
+      if (this.archivedView) return this.archived;
       if (this.filter === 'all') return this.bills;
       if (this.filter === 'active') return this.bills.filter((b) => b.status === 'active' || b.status === 'draft');
       return this.bills.filter((b) => b.status === this.filter);
@@ -137,9 +142,14 @@ Setlo.mount({
   },
   async mounted() {
     if (this.creating) this.openCreate();
-    await Setlo.load(this, 'bills.php', null, (r) => { this.bills = r.bills; });
+    await Setlo.load(this, 'bills.php', null, (r) => { this.bills = r.bills; this.archivedCount = r.archived_count || 0; });
   },
   methods: {
+    /** Closed bills you archived (Setlo.toggleArchive): open one to bring it back. */
+    async openArchived() {
+      this.archivedView = true;
+      await Setlo.load(this, 'bills.php', { scope: 'archived' }, (r) => { this.archived = r.bills; });
+    },
     async openCreate() {
       this.creating = true;
       this.$nextTick(() => this.$refs.name && this.$refs.name.focus());

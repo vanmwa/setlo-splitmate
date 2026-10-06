@@ -37,10 +37,6 @@ switch ($action) {
         q("UPDATE bills SET status = 'active', ocr_status = 'skipped' WHERE id = ? AND status = 'draft'", [$bill['id']]);
         json_ok(['redirect' => 'review-items?bill=' . $bill['id']]);
 
-    case 'demo':
-        $stored = store_receipts($bill, [DEMO_RECEIPT], 'ok', [], $replace);
-        json_ok(['ocr' => 'ok', 'duplicates' => $stored['duplicates'], 'redirect' => 'review-items?bill=' . $bill['id']]);
-
     case 'upload':
         // images[]: one photo, or several sections of one long receipt. "image" is the older single-photo field.
         $names = save_uploaded_images('images', 'receipts', 'bill' . $bill['id'], MAX_PHOTOS)

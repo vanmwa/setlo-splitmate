@@ -1,6 +1,7 @@
 <?php
 require __DIR__ . '/../includes/api.php';
 require __DIR__ . '/../includes/receipts.php';
+require_once __DIR__ . '/../includes/games.php';
 
 $me = api_user();
 
@@ -15,6 +16,21 @@ function add_guest(int $billId, string $name): void
         [$name, $palette[array_rand($palette)]]
     );
     q('INSERT INTO bill_members (bill_id, user_id) VALUES (?, ?)', [$billId, (int) db()->lastInsertId()]);
+}
+
+/**
+ * The creator may delete a bill, or take back its settlement plan, until money has moved on it. After that it's
+ * a record of real payments, so it stays (it can be archived once closed).
+ */
+function require_undoable(array $bill): void
+{
+    if ($bill['kind'] === 'loan') {
+        fail('This is an utang, not a bill — manage it on the Utang page.', 409);
+    }
+    if (in_array($bill['status'], ['settling', 'closed'], true) && bill_money_moved($bill['id'])) {
+        fail('Someone has already paid on this bill, so it can’t be undone or deleted — it’s kept as a record of those payments. '
+            . ($bill['status'] === 'closed' ? 'You can archive it instead.' : 'Once it’s closed you can archive it.'), 409);
+    }
 }
 
 /** Invite codes: 12 chars from an unambiguous alphabet (no 0/O, 1/l/I). */
@@ -93,6 +109,15 @@ if (method() === 'GET') {
                 'settling_at'    => $bill['settling_at'],
                 'closed_at'      => $bill['closed_at'],
                 'locked'         => in_array($bill['status'], ['settling', 'closed'], true),
+                // Settling, but nobody has paid anything yet: the creator can still take it back or delete it.
+                'money_moved'    => $bill['status'] !== 'draft' && $bill['status'] !== 'active' && bill_money_moved($bill['id']),
+                'archived'       => (bool) q('SELECT archived_at FROM bill_members WHERE bill_id = ? AND user_id = ?', [$bill['id'], $me['id']])->fetchColumn(),
+                // Fun Mode: the group's game decides the split (pages/game.php)
+                'fun_mode'       => bill_fun_mode($bill),
+                'game_pending'   => game_pending($bill),
+                'game'           => ($g = current_game($bill['id'])) && $g['status'] === 'done' && $g['game'] !== 'skip'
+                    ? ['game' => $g['game'], 'title' => GAMES[$g['game']]['emoji'] . ' ' . GAMES[$g['game']]['title'], 'result' => $g['state']['result'] ?? null]
+                    : ($g && $g['status'] !== 'done' ? ['game' => $g['game'], 'live' => true] : null),
             ],
             'me'          => ['id' => $me['id'], 'is_creator' => $creator, 'is_payer' => $bill['payer_id'] === $me['id']],
             'members'     => $members,
@@ -118,16 +143,22 @@ if (method() === 'GET') {
         ]);
     }
 
+    // all / history: what you haven't archived · archived: only what you have
     $scope = $_GET['scope'] ?? 'all';
-    $where = $scope === 'history' ? "AND b.status = 'closed'" : '';
+    $where = match ($scope) {
+        'history'  => "AND b.status = 'closed' AND m.archived_at IS NULL",
+        'archived' => 'AND m.archived_at IS NOT NULL',
+        default    => 'AND m.archived_at IS NULL',
+    };
     $rows = q(
         "SELECT b.* FROM bills b JOIN bill_members m ON m.bill_id = b.id
          WHERE m.user_id = ? AND b.kind = 'bill' $where
          ORDER BY FIELD(b.status, 'active', 'draft', 'settling', 'closed'), COALESCE(b.closed_at, b.created_at) DESC",
         [$me['id']]
     )->fetchAll();
+    $archived = (int) q("SELECT COUNT(*) FROM bill_members m JOIN bills b ON b.id = m.bill_id WHERE m.user_id = ? AND b.kind = 'bill' AND m.archived_at IS NOT NULL", [$me['id']])->fetchColumn();
 
-    json_ok(['bills' => array_map(fn ($b) => bill_card($b) + ['link' => bill_link($b, $me['id'])], $rows)]);
+    json_ok(['bills' => array_map(fn ($b) => bill_card($b) + ['link' => bill_link($b, $me['id'])], $rows), 'archived_count' => $archived]);
 }
 
 // ---------- Writes ----------
@@ -311,6 +342,9 @@ switch ($action) {
         if (!in_array($mode, ['items', 'percent'], true)) {
             fail('Unknown split mode.', 422);
         }
+        if ($bill['split_mode'] === 'game') {
+            clear_game_result($bill); // "Split normally instead" after a Fun Mode game
+        }
         q('UPDATE bills SET split_mode = ? WHERE id = ?', [$mode, $bill['id']]);
         if ($mode === 'percent' && !q('SELECT 1 FROM bill_members WHERE bill_id = ? AND percent IS NOT NULL LIMIT 1', [$bill['id']])->fetchColumn()) {
             // First switch: start from an even split, leftover hundredths to the first members.
@@ -349,18 +383,47 @@ switch ($action) {
     case 'start_settling':
         require_creator($bill, $me);
         require_editable($bill);
-        // Installments with interest (optional): % of what's left, added after each partial payment.
-        $rate = input('interest_rate');
-        $rate = $rate === null || $rate === '' ? null : round((float) $rate, 2);
-        if ($rate !== null && ($rate < 0 || $rate > 20)) {
-            fail('The interest rate must be between 0% and 20%.', 422, ['fields' => ['interest' => 'Between 0% and 20%.']]);
-        }
-        start_settling($bill, $me, $rate);
+        // Installments with interest (optional): one of the fixed INSTALLMENT_RATES, added after each partial payment.
+        start_settling($bill, $me, installment_rate(input('interest_rate')));
         json_ok(['redirect' => 'bill-detail?bill=' . $bill['id']]);
+
+    case 'reopen':
+        // Take back "Start settling" to fix a mistake (wrong split, missed item, wrong payer): the plan is removed
+        // and the bill can be edited again. Only while nobody has paid anything on it.
+        require_creator($bill, $me);
+        require_undoable($bill);
+        if (!in_array($bill['status'], ['settling', 'closed'], true)) {
+            fail('This bill hasn’t started settling.', 409);
+        }
+        $others = array_values(array_diff(array_column(bill_members($bill['id']), 'id'), [$me['id']]));
+        $pdo = db();
+        $pdo->beginTransaction();
+        q('DELETE FROM settlements WHERE bill_id = ?', [$bill['id']]);
+        q("UPDATE bills SET status = 'active', settling_at = NULL, closed_at = NULL, interest_rate = NULL WHERE id = ?", [$bill['id']]);
+        q('UPDATE bill_members SET archived_at = NULL WHERE bill_id = ?', [$bill['id']]);
+        foreach ($others as $uid) {
+            notify($uid, 'settling', first_name($me['full_name']) . " took back the settlement plan for {$bill['name']} to fix it — nothing to pay for now.", 'bill-items?bill=' . $bill['id']);
+        }
+        $pdo->commit();
+        json_ok(['redirect' => 'assign-items?bill=' . $bill['id']]);
+
+    case 'archive':
+    case 'unarchive':
+        // Just for me: a closed bill leaves my bill list and past settlements. Its records stay for everyone.
+        if ($action === 'archive' && $bill['status'] !== 'closed') {
+            fail('Only a closed bill can be archived — it closes once every payment is settled.', 409);
+        }
+        q('UPDATE bill_members SET archived_at = ' . ($action === 'archive' ? 'NOW()' : 'NULL') . ' WHERE bill_id = ? AND user_id = ?', [$bill['id'], $me['id']]);
+        json_ok(['archived' => $action === 'archive']);
 
     case 'delete':
         require_creator($bill, $me);
-        require_editable($bill);
+        require_undoable($bill);
+        if ($bill['status'] === 'settling' || $bill['status'] === 'closed') {
+            foreach (array_diff(array_column(bill_members($bill['id']), 'id'), [$me['id']]) as $uid) {
+                notify($uid, 'closed', first_name($me['full_name']) . " deleted {$bill['name']} — nothing to pay for it.", 'my-settlements');
+            }
+        }
         delete_upload('receipts', $bill['receipt_image']);
         $photos = q('SELECT p.image FROM receipt_photos p JOIN receipts r ON r.id = p.receipt_id WHERE r.bill_id = ?', [$bill['id']])->fetchAll(PDO::FETCH_COLUMN);
         foreach (q('SELECT proof_image FROM settlements WHERE bill_id = ?', [$bill['id']])->fetchAll(PDO::FETCH_COLUMN) as $proof) {

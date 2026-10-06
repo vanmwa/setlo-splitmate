@@ -5,7 +5,7 @@ CREATE DATABASE IF NOT EXISTS setlo CHARACTER SET utf8mb4 COLLATE utf8mb4_unicod
 USE setlo;
 
 SET FOREIGN_KEY_CHECKS = 0;
-DROP TABLE IF EXISTS user_group_members, user_groups, login_attempts, notifications, settlement_events, credits, settlement_payments, settlements, item_assignments, receipt_items, receipt_photos, receipts, bill_payments, bill_members, bills, users;
+DROP TABLE IF EXISTS game_players, game_sessions, user_achievements, user_group_members, user_groups, login_attempts, notifications, settlement_events, credits, settlement_payments, settlements, item_assignments, receipt_items, receipt_photos, receipts, bill_payments, bill_members, bills, users;
 SET FOREIGN_KEY_CHECKS = 1;
 
 CREATE TABLE users (
@@ -18,6 +18,8 @@ CREATE TABLE users (
   payment_method  ENUM('GCash','Maya','Bank Transfer','Cash') NOT NULL DEFAULT 'GCash',
   payment_account VARCHAR(60) NULL,               -- e.g. GCash number / account name, shown to people who owe you
   avatar_color    CHAR(7) NOT NULL DEFAULT '#0d9488',
+  avatar          VARCHAR(120) NULL,              -- profile picture: 'pfp/<file>' (assets/pfp) or 'up/<file>' (uploads/avatars); NULL = initials
+  featured_achievement VARCHAR(30) NULL,          -- badge shown next to their name (user_achievements.code)
   role            ENUM('user','admin','guest') NOT NULL DEFAULT 'user',  -- guest: name-only bill member, cannot sign in
   status          ENUM('active','suspended') NOT NULL DEFAULT 'active',
   created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -31,6 +33,7 @@ CREATE TABLE bills (
   name            VARCHAR(120) NOT NULL,          -- for an utang: what the money was for
   kind            ENUM('bill','loan') NOT NULL DEFAULT 'bill', -- loan: an utang between two people, no receipt (api/loans.php)
   loan_amount     DECIMAL(10,2) NULL,             -- loan: how much was lent
+  change_payment_id INT UNSIGNED NULL,            -- loan: extra cash kept from this cash payment instead of giving change (includes/payments.php)
   group_id        INT UNSIGNED NULL,              -- saved group it was started from (user_groups), for the group's trail
   creator_id      INT UNSIGNED NOT NULL,
   payer_id        INT UNSIGNED NOT NULL,          -- who paid the restaurant; receives all settlements
@@ -38,7 +41,7 @@ CREATE TABLE bills (
   tax             DECIMAL(10,2) NOT NULL DEFAULT 0,
   service_charge  DECIMAL(10,2) NOT NULL DEFAULT 0,
   discount        DECIMAL(10,2) NOT NULL DEFAULT 0,  -- discount printed on the receipt (Senior/PWD, promo), deducted from the total
-  split_mode      ENUM('items','percent') NOT NULL DEFAULT 'items',  -- percent: each member pays bill_members.percent of the total
+  split_mode      ENUM('items','percent','game') NOT NULL DEFAULT 'items',  -- percent: each member pays bill_members.percent of the total; game: set by a Fun Mode game
   interest_rate   DECIMAL(5,2) NULL,              -- set by the creator at settling: % added to what's left after each partial payment
   receipt_total   DECIMAL(10,2) NULL,             -- total printed on the receipt, for the match check
   receipt_image   VARCHAR(255) NULL,              -- legacy single photo; photos now live in receipt_photos
@@ -58,7 +61,10 @@ CREATE TABLE bill_members (
   user_id   INT UNSIGNED NOT NULL,
   discount_type ENUM('none','senior','pwd') NOT NULL DEFAULT 'none',  -- receives the receipt discount first
   percent   DECIMAL(5,2) NULL,                    -- share of the whole bill when bills.split_mode = 'percent'
+  game_weight TINYINT UNSIGNED NULL,              -- split_mode = 'game': 1 = shares the bill equally, 0 = pays nothing
+  game_share  INT NULL,                           -- split_mode = 'game' (Mystery Card): their exact share in centavos
   joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  archived_at DATETIME NULL,                      -- this member put the closed bill away: hidden from their lists, kept for everyone else
   PRIMARY KEY (bill_id, user_id),
   FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id)
@@ -117,8 +123,9 @@ CREATE TABLE receipt_items (
   position        SMALLINT UNSIGNED NOT NULL DEFAULT 0,
   name            VARCHAR(120) NOT NULL,
   qty             SMALLINT UNSIGNED NOT NULL DEFAULT 1,
-  unit_price      DECIMAL(10,2) NOT NULL,
-  source          ENUM('ocr','manual') NOT NULL DEFAULT 'manual',
+  unit_price      DECIMAL(10,2) NOT NULL,         -- what was paid per piece: already less any promo below
+  promo           DECIMAL(10,2) NOT NULL DEFAULT 0, -- item promo printed under the line (e.g. -57.50), off the whole line
+  source         ENUM('ocr','manual') NOT NULL DEFAULT 'manual',
   ocr_name        VARCHAR(120) NULL,              -- what OCR originally read, to measure correction rate
   printed_name    VARCHAR(120) NULL,              -- the text exactly as printed (ocr_name is the plain-English version)
   details         VARCHAR(255) NULL,              -- a meal set's contents, e.g. "Chicken, Rice, Iced Tea"
@@ -187,6 +194,8 @@ CREATE TABLE settlement_payments (
   paid_by          INT UNSIGNED NOT NULL,
   amount           DECIMAL(10,2) NOT NULL,
   method           ENUM('online','transfer','cash','credit') NOT NULL, -- credit: paid from an earlier cash overpayment
+  online_via    VARCHAR(20) NULL,                 -- online: the PayMongo channel — card, gcash, maya (or grab_pay…)
+  online_detail VARCHAR(40) NULL,                 -- online card: brand and last 4 digits, e.g. "Visa •4242"
   status           ENUM('started','awaiting','confirmed','rejected') NOT NULL DEFAULT 'awaiting',
   payment_ref      VARCHAR(60) NULL,
   proof_image      VARCHAR(255) NULL,             -- uploads/proofs
@@ -203,8 +212,8 @@ CREATE TABLE settlement_payments (
   INDEX (status)
 ) ENGINE=InnoDB;
 
--- Cash paid over what was owed and kept by the receiver: it pays the payer's other debts to the receiver,
--- now (oldest first) and as new ones come (new splits, pay-backs, loans), until it's used up.
+-- Legacy: extra cash kept by the receiver, before it became a change utang (bills.change_payment_id).
+-- database/migrate.php turns any credit still left into one; nothing new is written here.
 CREATE TABLE credits (
   id                 INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   owner_id           INT UNSIGNED NOT NULL,       -- whose money it is (overpaid)
@@ -225,6 +234,7 @@ CREATE TABLE user_groups (
   id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name        VARCHAR(60) NOT NULL,
   owner_id    INT UNSIGNED NOT NULL,
+  fun_mode    TINYINT(1) NOT NULL DEFAULT 0,      -- on: after the receipt review, the group's bills offer a game (pages/game.php)
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
@@ -252,11 +262,59 @@ CREATE TABLE login_attempts (
 CREATE TABLE notifications (
   id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id     INT UNSIGNED NOT NULL,
-  type        ENUM('added','paid','confirmed','disputed','resent','settling','closed','nudge','admin') NOT NULL,
+  type        ENUM('added','paid','confirmed','disputed','resent','settling','closed','nudge','admin','achievement','game') NOT NULL,
   message     VARCHAR(300) NOT NULL,
   link        VARCHAR(200) NULL,
   is_read     TINYINT(1) NOT NULL DEFAULT 0,
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   INDEX (user_id, is_read)
+) ENGINE=InnoDB;
+
+-- One-time achievements (includes/achievements.php). Earned once, kept for good; hidden ones aren't shown to others.
+CREATE TABLE user_achievements (
+  user_id    INT UNSIGNED NOT NULL,
+  code       VARCHAR(30) NOT NULL,
+  bill_id    INT UNSIGNED NULL,                   -- the bill it was earned on
+  earned_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  seen_at    DATETIME NULL,                       -- NULL: its pop-up hasn't been shown yet (shown on the dashboard)
+  hidden     TINYINT(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, code),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- Fun Mode games (includes/games.php). The server holds the true state; screens only draw it and poll for changes.
+-- state (JSON): the race challenge / target / shuffled deck / knock-out order and, once done, the result. version goes up on every change.
+CREATE TABLE game_sessions (
+  id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  bill_id      INT UNSIGNED NOT NULL,
+  host_id      INT UNSIGNED NOT NULL,
+  game         ENUM('race','closest','roulette','cards','skip') NOT NULL,   -- skip: the creator chose to split normally
+  mode         ENUM('screen','live') NOT NULL DEFAULT 'screen',    -- screen: one phone passed around; live: everyone's phone
+  status       ENUM('lobby','playing','choosing','done','cancelled') NOT NULL DEFAULT 'lobby',
+  state        TEXT NULL,
+  started_at   DATETIME(3) NULL,
+  deadline_at  DATETIME(3) NULL,
+  version      INT UNSIGNED NOT NULL DEFAULT 1,
+  created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE,
+  FOREIGN KEY (host_id) REFERENCES users(id),
+  INDEX (bill_id, status)
+) ENGINE=InnoDB;
+
+CREATE TABLE game_players (
+  session_id   INT UNSIGNED NOT NULL,
+  user_id      INT UNSIGNED NOT NULL,
+  joined_at    DATETIME NULL,                     -- live mode: when they opened the game on their phone
+  answer_cents INT NULL,                          -- race: their total · closest: their basket's total
+  basket       TEXT NULL,                         -- closest: JSON {receipt item id: qty}
+  turn_started_at DATETIME(3) NULL,               -- race: when their clock started (live: all at once; one phone: their Go)
+  answered_at  DATETIME(3) NULL,                  -- when they locked in (one answer each)
+  card_slot    TINYINT UNSIGNED NULL,             -- which face-down card they picked (unique per game)
+  target_id    INT UNSIGNED NULL,                 -- who their 🔄 / 🔀 / 💥 card picked
+  PRIMARY KEY (session_id, user_id),
+  UNIQUE (session_id, card_slot),
+  FOREIGN KEY (session_id) REFERENCES game_sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;

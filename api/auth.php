@@ -96,7 +96,8 @@ switch ($action) {
             [trim($name), $email, password_hash($password, PASSWORD_DEFAULT), $palette[array_rand($palette)], new_pay_code()]
         );
         login_user((int) db()->lastInsertId(), true);
-        json_ok(['redirect' => 'dashboard', 'csrf' => csrf_token()]);
+        // First stop for a new account: pick a profile picture (pages/choose-photo.php)
+        json_ok(['redirect' => 'choose-photo', 'new' => true, 'csrf' => csrf_token()]);
 
     case 'google':
         // Sign in or sign up with a Google ID token from Google Identity Services.
@@ -132,7 +133,7 @@ switch ($action) {
             $isNew = true;
         }
         login_user($userId, (bool) input('remember', true));
-        json_ok(['redirect' => $isNew ? 'profile' : 'dashboard', 'new' => $isNew, 'csrf' => csrf_token()]);
+        json_ok(['redirect' => $isNew ? 'choose-photo' : 'dashboard', 'new' => $isNew, 'csrf' => csrf_token()]);
 
     case 'logout':
         logout_user();

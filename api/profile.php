@@ -1,6 +1,7 @@
 <?php
-// My profile: name, payment details, personal "Pay me" QR code, password.
+// My profile: picture, name, payment details, personal "Pay me" QR code, password.
 require __DIR__ . '/../includes/api.php';
+require __DIR__ . '/../includes/uploads.php';
 
 $me = api_user();
 
@@ -8,7 +9,7 @@ const PAYMENT_METHODS = ['GCash', 'Maya', 'Bank Transfer', 'Cash'];
 
 function profile_of(int $userId): array
 {
-    $u = q('SELECT id, full_name, email, payment_method, payment_account, pay_code, avatar_color, google_sub FROM users WHERE id = ?', [$userId])->fetch();
+    $u = q('SELECT id, full_name, email, payment_method, payment_account, pay_code, avatar_color, avatar, featured_achievement, google_sub FROM users WHERE id = ?', [$userId])->fetch();
     if ($u['pay_code'] === null) {
         // Safety net: every account has its own Pay-me code.
         $u['pay_code'] = new_pay_code();
@@ -20,7 +21,18 @@ function profile_of(int $userId): array
         'payment_account' => $u['payment_account'],
         'pay_code'        => $u['pay_code'],
         'google_linked'   => $u['google_sub'] !== null,
+        'avatar'          => $u['avatar'], // 'pfp/<file>', 'up/<file>' or null: which picker choice is selected
     ];
+}
+
+/** Replace my picture; a gallery photo I'm moving away from is deleted. */
+function set_avatar(int $userId, ?string $avatar): void
+{
+    $old = (string) q('SELECT avatar FROM users WHERE id = ?', [$userId])->fetchColumn();
+    q('UPDATE users SET avatar = ? WHERE id = ?', [$avatar, $userId]);
+    if (str_starts_with($old, 'up/') && $old !== $avatar) {
+        delete_upload('avatars', substr($old, 3));
+    }
 }
 
 /**
@@ -53,7 +65,17 @@ function money_stats(int $userId): array
 }
 
 if (method() === 'GET') {
-    json_ok(['profile' => profile_of($me['id']), 'money' => money_stats($me['id'])]);
+    if (isset($_GET['avatars'])) {
+        // Just what the picture picker needs (first-run page)
+        json_ok(['profile' => profile_of($me['id']), 'presets' => avatar_preset_list()]);
+    }
+    json_ok(['profile' => profile_of($me['id']), 'money' => money_stats($me['id']), 'presets' => avatar_preset_list()]);
+}
+
+/** The preset pictures for the picker: [{ key: 'pfp/<file>', url }]. */
+function avatar_preset_list(): array
+{
+    return array_map(fn ($f) => ['key' => 'pfp/' . $f, 'url' => url('assets/pfp/' . rawurlencode($f))], avatar_presets());
 }
 
 if (method() !== 'POST') {
@@ -79,6 +101,21 @@ switch (input('action', '')) {
         }
         q('UPDATE users SET full_name = ?, payment_method = ?, payment_account = ? WHERE id = ?',
             [trim($name), $method, $method === 'Cash' ? null : (trim($account) ?: null), $me['id']]);
+        json_ok(['profile' => profile_of($me['id'])]);
+
+    case 'set_avatar':
+        // key: a preset ('pfp/<file>'), or '' to go back to initials
+        $key = (string) input('key', '');
+        if ($key !== '' && !(str_starts_with($key, 'pfp/') && in_array(substr($key, 4), avatar_presets(), true))) {
+            fail('Pick one of the pictures shown.', 422);
+        }
+        set_avatar($me['id'], $key ?: null);
+        json_ok(['profile' => profile_of($me['id'])]);
+
+    case 'upload_avatar':
+        // A photo from the phone's gallery, already cropped square and shrunk by the page (assets/js/ui.js)
+        $file = save_uploaded_image('photo', 'avatars', 'u' . $me['id']);
+        set_avatar($me['id'], 'up/' . $file);
         json_ok(['profile' => profile_of($me['id'])]);
 
     case 'rotate_pay_code':

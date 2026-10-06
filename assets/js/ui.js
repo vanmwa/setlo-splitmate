@@ -139,15 +139,276 @@
     });
   }
 
+  /** Archive a closed bill for me only, or bring it back. Updates bill.archived; resolves true when it changed. */
+  async function toggleArchive(bill) {
+    const archive = !bill.archived;
+    if (archive && !(await confirmDialog({
+      title: 'Archive this bill?', confirmText: 'Archive', icon: 'question',
+      text: 'It leaves your bill list and past settlements. Nothing is deleted — it stays under My Bills → Archived, and the others on the bill still see it.',
+    }))) return false;
+    try {
+      bill.archived = (await api.post('bills.php', { action: archive ? 'archive' : 'unarchive', bill_id: bill.id })).archived;
+    } catch (e) {
+      toast(e.message);
+      return false;
+    }
+    toast(archive ? 'Bill archived' : 'Bill is back in your list', 'ok');
+    return true;
+  }
+
+  // ---------- Achievements ----------
+  // Pop-ups wait their turn: several badges (or a badge while another dialog is open) show one after another.
+  let achievementQueue = Promise.resolve();
+
+  // Each badge card's backdrop behind its artwork: [centre, edge] of a radial gradient.
+  const BADGE_COLORS = {
+    itemalizer: ['#99f6e4', '#14b8a6'], kuripot: ['#fef08a', '#eab308'], glutton: ['#fed7aa', '#f97316'],
+    one_two_three: ['#bfdbfe', '#3b82f6'], samaritan: ['#bbf7d0', '#22c55e'], split_personality: ['#e9d5ff', '#a855f7'],
+    debt_collector: ['#a7f3d0', '#059669'], clean_slate: ['#cffafe', '#06b6d4'], human_calculator: ['#c7d2fe', '#6366f1'],
+    bullseye: ['#fecdd3', '#f43f5e'], main_character: ['#fde68a', '#f59e0b'], receipt_from_hell: ['#fecaca', '#b91c1c'],
+  };
+  const reducedMotion = () => global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /** Tilt a badge card toward the pointer or finger, with a shine that follows it. */
+  function tiltCard(card) {
+    if (reducedMotion()) return;
+    const move = (e) => {
+      const r = card.getBoundingClientRect();
+      const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+      const y = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+      card.classList.add('tilting');
+      card.style.transform = `perspective(900px) rotateX(${((0.5 - y) * 14).toFixed(2)}deg) rotateY(${((x - 0.5) * 18).toFixed(2)}deg)`;
+      card.style.setProperty('--mx', (x * 100).toFixed(1) + '%');
+      card.style.setProperty('--my', (y * 100).toFixed(1) + '%');
+      card.style.setProperty('--shine', '1');
+    };
+    const rest = () => {
+      card.classList.remove('tilting');
+      card.style.transform = '';
+      card.style.setProperty('--shine', '0');
+    };
+    card.addEventListener('pointermove', move);
+    card.addEventListener('pointerdown', move);
+    card.addEventListener('pointerleave', rest);
+    card.addEventListener('pointerup', rest);
+    card.addEventListener('pointercancel', rest);
+  }
+
+  /** A short burst of confetti from behind the card, in the badge's colours plus the brand's. */
+  function confetti(colors) {
+    if (reducedMotion()) return;
+    const c = document.createElement('canvas');
+    c.className = 'badge-confetti';
+    const dpr = Math.min(2, global.devicePixelRatio || 1);
+    const W = global.innerWidth, H = global.innerHeight;
+    c.width = W * dpr; c.height = H * dpr;
+    document.body.appendChild(c);
+    const ctx = c.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const palette = [...colors, '#14b8a6', '#facc15', '#f472b6', '#ffffff'];
+    const parts = Array.from({ length: 140 }, () => {
+      const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.1;
+      const speed = 7 + Math.random() * 9;
+      return {
+        x: W / 2 + (Math.random() - 0.5) * 120, y: H * 0.45,
+        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        w: 5 + Math.random() * 6, h: 8 + Math.random() * 8, r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.35,
+        color: palette[Math.floor(Math.random() * palette.length)],
+      };
+    });
+    const start = performance.now();
+    const frame = (now) => {
+      const t = now - start;
+      ctx.clearRect(0, 0, W, H);
+      ctx.globalAlpha = t > 1700 ? Math.max(0, 1 - (t - 1700) / 600) : 1;
+      for (const p of parts) {
+        p.vy += 0.32; p.vx *= 0.985; p.vy *= 0.985;
+        p.x += p.vx; p.y += p.vy; p.r += p.vr;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.r);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, Math.abs(Math.cos(p.r * 2)) * p.h + 1); // flutters as it turns
+        ctx.restore();
+      }
+      if (t < 2300) requestAnimationFrame(frame);
+      else c.remove();
+    };
+    requestAnimationFrame(frame);
+  }
+
+  /**
+   * The pop-up for one badge: { code, emoji, title, description, image, earned_at? }. A tall card: artwork on the
+   * badge's colour with slowly turning rays, then the title. It flips in, tilts under the pointer or finger, and a
+   * newly unlocked badge bursts confetti. Resolves when closed.
+   */
+  function achievementModal(a, { reopened = false } = {}) {
+    const [c1, c2] = BADGE_COLORS[a.code] || ['#ccfbf1', '#0d9488'];
+    return swal({
+      html: `<div class="badge-flip"><div class="badge-card" style="--c1:${c1};--c2:${c2}">
+          <div class="badge-art">
+            <div class="badge-rays"></div>
+            <span class="badge-tag">${reopened ? 'Achievement' : 'Unlocked!'}</span>
+            <img src="${escapeHtml(a.image)}" alt="" draggable="false" />
+          </div>
+          <div class="badge-body">
+            <p class="text-[21px] font-extrabold leading-tight text-ink">${escapeHtml(a.emoji)} ${escapeHtml(a.title)}</p>
+            <p class="mt-1.5 text-[13.5px] leading-snug text-slate-500">${escapeHtml(a.description)}</p>
+            ${a.earned_at ? `<p class="mt-2.5 text-[11.5px] font-semibold text-slate-400">Unlocked ${escapeHtml(fmtDate(a.earned_at, true))}</p>` : ''}
+          </div>
+          <div class="badge-shine"></div>
+        </div></div>`,
+      customClass: { popup: 'setlo-swal badge-popup' },
+      showClass: { popup: '' }, // the card's own flip-in replaces SweetAlert's zoom
+      confirmButtonText: reopened ? 'Close' : 'Nice!',
+      // Only the button closes a new badge, so it can't be dismissed by an accidental tap outside.
+      allowOutsideClick: reopened, allowEscapeKey: reopened,
+      didOpen: (el) => {
+        tiltCard(el.querySelector('.badge-card'));
+        if (!reopened) confetti([c1, c2]);
+      },
+    });
+  }
+
+  /** Show newly earned badges, one pop-up at a time. */
+  function showAchievements(list) {
+    for (const a of list || []) achievementQueue = achievementQueue.then(() => achievementModal(a)).catch(() => {});
+    return achievementQueue;
+  }
+
+  /** The featured title next to someone's name: { emoji, title }. */
+  const StatusBadge = {
+    props: { badge: Object },
+    template: `<span v-if="badge" class="status-badge" :title="'Title: ' + badge.title">{{ badge.emoji }} {{ badge.title }}</span>`,
+  };
+
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
   // ---------- Shared components ----------
+  /** A person's picture (user.photo) or, without one or if it fails to load, their initials on their colour. */
   const Avatar = {
     props: { user: { type: Object, required: true }, size: { type: Number, default: 36 }, ring: { type: Boolean, default: false } },
-    template: `<span class="av" :style="{ background: user.color, width: size + 'px', height: size + 'px', fontSize: size * 0.36 + 'px', boxShadow: ring ? undefined : 'none' }" :title="user.name">{{ user.initials }}</span>`,
+    data: () => ({ broken: null }),
+    template: `<img v-if="user.photo && broken !== user.photo" :src="user.photo" @error="broken = user.photo" alt="" class="av object-cover"
+        :style="{ width: size + 'px', height: size + 'px', boxShadow: ring ? undefined : 'none' }" :title="user.name" />
+      <span v-else class="av" :style="{ background: user.color, width: size + 'px', height: size + 'px', fontSize: size * 0.36 + 'px', boxShadow: ring ? undefined : 'none' }" :title="user.name">{{ user.initials }}</span>`,
   };
+
+  /** A gallery photo cropped to its centre square and shrunk to 384 px, as a JPEG blob (keeps uploads small). */
+  function squarePhoto(file, size = 384) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const src = URL.createObjectURL(file);
+      img.onload = () => {
+        const side = Math.min(img.naturalWidth, img.naturalHeight);
+        const c = document.createElement('canvas');
+        c.width = c.height = size;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, size, size);
+        ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+        URL.revokeObjectURL(src);
+        c.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not read that photo.'))), 'image/jpeg', 0.88);
+      };
+      img.onerror = () => { URL.revokeObjectURL(src); reject(new Error('That file isn’t a photo we can open. Try a JPG or PNG.')); };
+      img.src = src;
+    });
+  }
+
+  /**
+   * Profile picture picker: the preset pictures (assets/pfp), a photo from the gallery, or initials. Saves on tap.
+   * props: profile (from api/profile.php: avatar, photo, initials, color…), presets ([{ key, url }]). Emits saved(profile).
+   */
+  const AvatarPicker = {
+    components: { Avatar },
+    props: { profile: { type: Object, required: true }, presets: { type: Array, default: () => [] } },
+    emits: ['saved'],
+    data: () => ({ busy: null }),
+    computed: {
+      uploaded() { return (this.profile.avatar || '').startsWith('up/'); },
+      initialsUser() { return { ...this.profile, photo: null }; },
+    },
+    methods: {
+      async save(key) {
+        if (this.busy || key === (this.profile.avatar || '')) return;
+        this.busy = key || 'initials';
+        try { this.$emit('saved', (await api.post('profile.php', { action: 'set_avatar', key })).profile); }
+        catch (e) { toast(e.message); }
+        finally { this.busy = null; }
+      },
+      async pick(e) {
+        const file = e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        if (!file.type.startsWith('image/')) { toast('Choose a photo.'); return; }
+        this.busy = 'upload';
+        try {
+          const fd = new FormData();
+          fd.append('action', 'upload_avatar');
+          fd.append('photo', await squarePhoto(file), 'avatar.jpg');
+          this.$emit('saved', (await api.post('profile.php', fd)).profile);
+        } catch (err) { toast(err.message); }
+        finally { this.busy = null; }
+      },
+    },
+    template: `<div>
+      <input ref="file" type="file" accept="image/*" class="hidden" @change="pick" aria-label="Choose a photo from your gallery" />
+      <button type="button" @click="$refs.file.click()" :disabled="!!busy"
+        class="flex w-full items-center gap-3 rounded-2xl border-[1.5px] p-3 text-left transition"
+        :class="uploaded ? 'border-brand-500 bg-brand-50/60' : 'border-dashed border-slate-300 bg-white hover:border-brand-400'">
+        <img v-if="uploaded" :src="profile.photo" alt="" class="h-12 w-12 shrink-0 rounded-full object-cover" />
+        <span v-else class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+          <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.6-4.6a2 2 0 012.8 0L16 16m-2-2l1.6-1.6a2 2 0 012.8 0L20 14M14 8h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        </span>
+        <span class="min-w-0 flex-1">
+          <span class="block text-[14px] font-bold text-ink">{{ busy === 'upload' ? 'Uploading…' : uploaded ? 'Your photo' : 'Choose from gallery' }}</span>
+          <span class="block text-[12px] text-slate-500">{{ uploaded ? 'Tap to pick a different one' : 'Use a photo from your phone' }}</span>
+        </span>
+        <span v-if="uploaded" class="text-[12px] font-bold text-brand-700">✓</span>
+      </button>
+
+      <p class="mb-2 mt-4 text-[12px] font-bold text-slate-500">Or pick one</p>
+      <div class="grid grid-cols-4 gap-3 sm:grid-cols-6">
+        <button v-for="p in presets" :key="p.key" type="button" @click="save(p.key)" :disabled="!!busy" :aria-label="'Use picture ' + p.key.slice(4)"
+          :aria-pressed="profile.avatar === p.key"
+          class="relative aspect-square rounded-full p-1 transition hover:scale-105"
+          :class="profile.avatar === p.key ? 'ring-[3px] ring-brand-500' : 'ring-1 ring-transparent'">
+          <img :src="p.url" alt="" class="h-full w-full" loading="lazy" :class="{ 'opacity-50': busy === p.key }" />
+          <span v-if="profile.avatar === p.key" class="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-brand-600 text-[11px] font-extrabold text-white ring-2 ring-white">✓</span>
+        </button>
+        <button type="button" @click="save('')" :disabled="!!busy" aria-label="Use my initials" :aria-pressed="!profile.avatar"
+          class="relative flex aspect-square items-center justify-center rounded-full p-1 transition hover:scale-105"
+          :class="!profile.avatar ? 'ring-[3px] ring-brand-500' : 'ring-1 ring-transparent'">
+          <span class="av h-full w-full text-[15px]" :style="{ background: profile.color, boxShadow: 'none' }">{{ profile.initials }}</span>
+          <span v-if="!profile.avatar" class="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-brand-600 text-[11px] font-extrabold text-white ring-2 ring-white">✓</span>
+        </button>
+      </div>
+      <p class="mt-2 text-[11.5px] text-slate-400">The last circle keeps your initials.</p>
+    </div>`,
+  };
+
+  /**
+   * Installment interest: one of the fixed rates (INSTALLMENT_RATES in includes/bootstrap.php — two low, one moderate).
+   * v-model is the chosen rate (a number). props: rates [{ rate, label, hint }].
+   */
+  const RateChoice = {
+    props: { rates: { type: Array, required: true }, modelValue: Number },
+    emits: ['update:modelValue'],
+    template: `<div class="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Interest after each partial payment">
+      <button v-for="r in rates" :key="r.rate" type="button" role="radio" :aria-checked="modelValue === r.rate" @click="$emit('update:modelValue', r.rate)"
+        class="rounded-2xl border-[1.5px] px-2 py-2.5 text-center transition"
+        :class="modelValue === r.rate ? (r.rate >= 5 ? 'border-amber-400 bg-amber-50' : 'border-brand-500 bg-brand-50') : 'border-slate-200 bg-white hover:border-slate-300'">
+        <span class="block text-[18px] font-extrabold leading-tight" :class="r.rate >= 5 ? 'text-amber-700' : 'text-brand-700'">{{ r.rate }}%</span>
+        <span class="block text-[12px] font-bold text-ink">{{ r.label }}</span>
+        <span class="mt-0.5 block text-[10.5px] leading-tight text-slate-400">{{ r.hint }}</span>
+      </button>
+    </div>`,
+  };
+
+  /** Where to go after Google or email sign-in: a brand-new account picks a profile picture first. */
+  const afterSignUp = (r, next) => (r.new ? 'choose-photo' + (next ? '?next=' + encodeURIComponent(next) : '') : next || r.redirect);
 
   const StatusPill = {
     props: { status: String, label: String },
@@ -170,6 +431,8 @@
     closed: ['bg-slate-100 text-slate-600', 'M5 13l4 4L19 7'],
     admin: ['bg-slate-800 text-white', 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'],
     nudge: ['bg-amber-100 text-amber-600', 'M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5'],
+    game: ['bg-fuchsia-100 text-fuchsia-600', 'M14.8 9.2a2.5 2.5 0 00-3.6 0M9 10h.01M15 10h.01M8.5 14.5a5 5 0 007 0M21 12a9 9 0 11-18 0 9 9 0 0118 0z'],
+    achievement: ['bg-violet-100 text-violet-600', 'M8 21h8m-4-4v4m-5-17h10v5a5 5 0 01-10 0V4zM7 6H4v1a3 3 0 003 3m10-4h3v1a3 3 0 01-3 3'],
   };
 
   const NotifIcon = {
@@ -316,17 +579,34 @@
     return groups.filter((g) => g.items.length);
   }
 
-  const helpers = { peso, pesoShort, timeAgo, fmtDate, fmtDateTime, fmtMonth, toast, receiptLabel, statusLabel: (s) => STATUS_LABELS[s] || s };
+  /** Which PayMongo channel paid an online payment: "GCash", "Maya", "Card · Visa •4242" ('' when unknown). */
+  const ONLINE_VIA = { card: 'Card', gcash: 'GCash', maya: 'Maya', grab_pay: 'GrabPay', qrph: 'QR Ph', billease: 'BillEase', dob: 'Online banking' };
+  function onlineVia(p) {
+    if (!p || p.method !== 'online' || !p.online_via) return '';
+    const name = ONLINE_VIA[p.online_via] || p.online_via;
+    return p.online_detail ? name + ' · ' + p.online_detail : name;
+  }
+  /** A payment's method with its online channel: "Online (GCash)". methods: the page's own method labels. */
+  function methodWithVia(p, methods) {
+    const base = (methods && methods[p.method]) || p.method;
+    const via = onlineVia(p);
+    return via ? base + ' (' + via + ')' : base;
+  }
+
+  const helpers = { peso, onlineVia, methodWithVia, pesoShort, timeAgo, fmtDate, fmtDateTime, fmtMonth, toast, receiptLabel, statusLabel: (s) => STATUS_LABELS[s] || s };
 
   /** Create and mount a page's Vue app with the shared components and helpers. */
   function mount(options, selector) {
     const app = createApp(options);
     app.component('avatar', Avatar);
+    app.component('avatar-picker', AvatarPicker);
+    app.component('rate-choice', RateChoice);
     app.component('status-pill', StatusPill);
     app.component('spinner', Spinner);
     app.component('notif-bell', NotifBell);
     app.component('notif-icon', NotifIcon);
     app.component('share-summary', ShareSummary);
+    app.component('status-badge', StatusBadge);
     Object.assign(app.config.globalProperties, helpers);
     app.config.errorHandler = (err) => { console.error(err); toast(err.message || 'Something went wrong.'); };
     return app.mount(selector || '#app');
@@ -408,5 +688,5 @@
       .then((ok) => { if (ok) form.submit(); });
   }, true);
 
-  global.Setlo = { mount, run, load, confirm: confirmDialog, alert: alertDialog, promptText, showCopy, escapeHtml, payLink, qrSvg, qrPng, showPayQr, groupByReceipt, ...helpers };
+  global.Setlo = { mount, run, load, confirm: confirmDialog, alert: alertDialog, promptText, showCopy, escapeHtml, payLink, qrSvg, qrPng, showPayQr, groupByReceipt, toggleArchive, afterSignUp, showAchievements, showAchievement: (a) => achievementModal(a, { reopened: true }), ...helpers };
 })(window);

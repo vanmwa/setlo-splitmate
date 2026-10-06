@@ -5,9 +5,9 @@ $title = 'Bill Breakdown';
 $nav = 'bills';
 $billId = (int) ($_GET['bill'] ?? 0);
 if (!$billId) {
-    redirect('pages/bill-history');
+    redirect('pages/stats?tab=history');
 }
-$back = 'bill-history.php';
+$back = 'stats?tab=history';
 $headExtra = ['assets/js/summary.js'];
 require __DIR__ . '/../partials/head.php';
 ?>
@@ -82,6 +82,11 @@ require __DIR__ . '/../partials/head.php';
     <div class="tile bg-slate-50 p-3.5">
       <div class="flex justify-between text-sm font-bold"><span>Bill total</span><span class="text-brand-700">{{ peso(d.total) }}</span></div>
     </div>
+
+    <div v-if="bill.status === 'closed'">
+      <button @click="toggleArchive" class="btn btn-ghost w-full">{{ bill.archived ? 'Unarchive this bill' : 'Archive this bill' }}</button>
+      <p class="mt-1 text-center text-[11.5px] text-slate-400">{{ bill.archived ? 'Archived — hidden from your bills and past settlements.' : 'Hides it from your bills and past settlements. Nothing is deleted.' }}</p>
+    </div>
   </div>
 
   <?php require __DIR__ . '/../partials/nav.php'; ?>
@@ -98,6 +103,7 @@ Setlo.mount({
     await Setlo.load(this, 'bills.php', { id: this.billId }, (r) => { this.d = r; this.bill = r.bill; });
   },
   methods: {
+    toggleArchive() { return Setlo.toggleArchive(this.bill); },
     assignedLabel(it) {
       if (!it.who.length) return this.bill.split_mode === 'percent' ? 'Split by percentage' : 'Unassigned';
       if (it.who.length === this.d.members.length && this.d.members.length > 2) return 'Split equally';

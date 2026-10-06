@@ -61,11 +61,6 @@ require __DIR__ . '/../partials/auth-landing-top.php';
     Don't have an account? <a href="register<?= $next ? '?next=' . h(urlencode($next)) : '' ?>" class="font-bold text-brand-700 hover:underline">Sign up</a>
   </p>
 
-  <details class="mt-5 rounded-2xl border border-dashed border-slate-200 px-4 py-2.5 text-[12px] text-slate-500">
-    <summary class="cursor-pointer font-semibold text-slate-600">Demo accounts</summary>
-    <p class="mt-1.5">miguel@setlo.app, ana@setlo.app, chris@setlo.app, dani@setlo.app — password <b>password123</b></p>
-  </details>
-
   <!-- Forgot password -->
   <div v-if="forgot" class="sheet-backdrop" @click.self="forgot = false">
     <div class="sheet" role="dialog" aria-labelledby="forgot-title">
@@ -95,7 +90,7 @@ Setlo.mount({
       label: 'Continue with Google',
       text: 'continue_with',
       remember: () => this.remember,
-      onSuccess: (r) => { location.href = NEXT || r.redirect; },
+      onSuccess: (r) => { location.href = Setlo.afterSignUp(r, NEXT); },
       onError: (message) => { this.error = message; },
     });
   },

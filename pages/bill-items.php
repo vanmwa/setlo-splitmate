@@ -45,6 +45,14 @@ require __DIR__ . '/../partials/head.php';
     <p v-if="byPercent" class="mb-3 rounded-xl border border-brand-100 bg-brand-50 px-3.5 py-2.5 text-[12px] font-medium text-brand-800">
       This bill is split by percentage of the whole total, so items don't need assigning. <a v-if="canEdit" :href="'assign-items.php?bill=' + billId" class="font-bold underline">Change the split</a>
     </p>
+    <!-- Fun Mode: a game is on, or decided the split -->
+    <a v-if="bill.game && bill.game.live" :href="'game?bill=' + billId" class="mb-3 flex items-center gap-3 rounded-xl border border-fuchsia-200 bg-fuchsia-50 px-3.5 py-2.5 text-[12.5px] font-semibold text-fuchsia-800">
+      <span class="wiggle text-[20px]">🎲</span><span class="flex-1">A Fun Mode game is on for this bill.</span><span class="font-extrabold underline">Join</span>
+    </a>
+    <p v-if="byGame" class="mb-3 rounded-xl border border-fuchsia-200 bg-fuchsia-50 px-3.5 py-2.5 text-[12px] font-medium text-fuchsia-800">
+      🎉 {{ bill.game ? bill.game.title + ' decided' : 'A Fun Mode game decided' }} who pays, so items don't need assigning. Your share: <b>{{ peso(d.shares[d.me.id] || 0) }}</b>.
+      <a :href="'game?bill=' + billId" class="font-bold underline">See the result</a>
+    </p>
     <p v-if="bill.locked" class="mb-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-[12px] text-slate-500">
       <b class="text-slate-700">Editing locked.</b> This bill is {{ bill.status === 'closed' ? 'closed' : 'settling' }}, so item assignments can't change.
     </p>
@@ -98,7 +106,7 @@ require __DIR__ . '/../partials/head.php';
       <div class="space-y-2">
         <button v-for="m in d.members" :key="m.id" @click="toggleDraft(m.id)" class="flex h-14 w-full items-center gap-3 rounded-2xl border-[1.5px] px-3.5" :class="draft.includes(m.id) ? 'border-brand-500 bg-brand-50/60' : 'border-slate-200'">
           <avatar :user="m" :size="32"></avatar>
-          <span class="flex-1 text-left text-[14px] font-bold text-ink">{{ m.id === me ? m.name + ' (You)' : m.name }}</span>
+          <span class="flex-1 text-left text-[14px] font-bold text-ink">{{ m.id === me ? m.name + ' (You)' : m.name }} <status-badge :badge="m.badge"></status-badge></span>
           <span class="flex h-5 w-5 items-center justify-center rounded-md" :class="draft.includes(m.id) ? 'bg-brand-600' : 'border-2 border-slate-300'">
             <svg v-if="draft.includes(m.id)" class="h-3.5 w-3.5 text-white" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
           </span>
@@ -125,8 +133,9 @@ Setlo.mount({
     canEdit() { return this.bill && this.d.me.is_creator && !this.bill.locked; },
     creatorName() { return (this.memberMap[this.bill.creator_id] || {}).name; },
     byPercent() { return !!this.bill && this.bill.split_mode === 'percent'; },
-    // Split by percentage: items don't need assigning.
-    unassignedCount() { return this.byPercent ? 0 : this.d.items.filter((it) => !it.who.length).length; },
+    byGame() { return !!this.bill && this.bill.split_mode === 'game'; },
+    // Split by percentage or by a game: items don't need assigning.
+    unassignedCount() { return this.byPercent || this.byGame ? 0 : this.d.items.filter((it) => !it.who.length).length; },
   },
   async mounted() { await Setlo.load(this, 'bills.php', { id: this.billId }, (r) => { this.d = r; this.bill = r.bill; }); },
   methods: {

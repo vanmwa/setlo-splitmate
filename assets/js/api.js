@@ -30,7 +30,7 @@
 
   const withQuery = (path, params) => path + (params ? '?' + new URLSearchParams(params).toString() : '');
 
-  async function request(method, path, data) {
+  async function request(method, path, data, cache = true) {
     if (method !== 'GET') store.clear(); // something may change: never show old numbers again
     const opts = { method, headers: { Accept: 'application/json' }, credentials: 'same-origin' };
     if (method !== 'GET') {
@@ -58,13 +58,18 @@
     if (!res.ok || !json.ok) {
       throw new ApiError(json.error || 'Request failed.', res.status, json);
     }
-    if (method === 'GET') store.set(path, json);
+    if (method === 'GET' && cache) store.set(path, json);
+    // Badges this request just earned (includes/achievements.php): pop up on whatever page made it. The reply is
+    // handed back only once they're closed, so a page that redirects or reloads next doesn't cut the pop-up short.
+    if (json.achievements?.length && global.Setlo) await global.Setlo.showAchievements(json.achievements);
     return json;
   }
 
   global.api = {
     ApiError,
     get: (path, params) => request('GET', withQuery(path, params)),
+    /** A GET that's repeated every second or two (live game screens): never saved for Setlo.load. */
+    poll: (path, params) => request('GET', withQuery(path, params), null, false),
     post: (path, data) => request('POST', path, data),
     /** The last saved reply for this GET (this tab, this user), or null. */
     peek: (path, params) => store.get(withQuery(path, params)),

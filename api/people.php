@@ -10,7 +10,7 @@ if (method() !== 'GET') {
 }
 
 $id = int_param('id');
-$u = q('SELECT id, full_name, avatar_color, role, payment_method, payment_account, pay_code, status FROM users WHERE id = ?', [$id])->fetch();
+$u = q('SELECT id, full_name, avatar_color, role, featured_achievement, payment_method, payment_account, pay_code, status FROM users WHERE id = ?', [$id])->fetch();
 if (!$u) {
     fail('Person not found.', 404);
 }
@@ -78,11 +78,13 @@ json_ok([
         'payment_account' => $u['payment_account'],
         'pay_code'        => $u['role'] === 'user' && $u['status'] === 'active' ? $u['pay_code'] : null,
         'is_me'           => $id === $me['id'],
+        // Badges they chose to show (hidden ones stay private)
+        'badges'          => user_badges($id, false),
     ],
     'they_owe'     => $sum($theyOwe),
-    // Cash overpaid and kept as credit: theirs that I'm holding, and mine they're holding.
-    'their_credit' => pesos(credit_cents($id, $me['id'])),
-    'my_credit'    => pesos(credit_cents($me['id'], $id)),
+    // Extra cash kept instead of giving change (change utang, plus any legacy credit): theirs I kept, and mine they kept.
+    'their_credit' => pesos(change_owed_cents($me['id'], $id) + credit_cents($id, $me['id'])),
+    'my_credit'    => pesos(change_owed_cents($id, $me['id']) + credit_cents($me['id'], $id)),
     'i_owe'        => $sum($iOwe),
     'installments' => array_map($brief, array_values(array_filter($open, $isInstallment))),
     'open'         => array_map($brief, array_values(array_filter($open, fn ($s) => !$isInstallment($s)))),

@@ -33,8 +33,10 @@ foreach ($rows as $i => $r) {
     if ($price < 0 || $price > 1000000) {
         fail("Check the price of $name.", 422);
     }
+    // The item promo is only a note of what came off: unit_price is already the price after it.
+    $promo = min(1000000, max(0, round((float) ($r['promo'] ?? 0), 2)));
     // needs_review: a flag left open (saved before adding another receipt); Continue only sends confirmed rows.
-    $clean[] = ['id' => isset($r['id']) ? (int) $r['id'] : null, 'name' => $name, 'qty' => $qty, 'unit_price' => $price, 'needs_review' => !empty($r['needs_review'])];
+    $clean[] = ['id' => isset($r['id']) ? (int) $r['id'] : null, 'name' => $name, 'qty' => $qty, 'unit_price' => $price, 'promo' => $promo, 'needs_review' => !empty($r['needs_review'])];
 }
 
 $tax = max(0, round((float) input('tax', 0), 2));
@@ -46,6 +48,13 @@ if (cents($discount) > $subtotalCents) {
 }
 $receiptTotal = input('receipt_total');
 $receiptTotal = $receiptTotal === null || $receiptTotal === '' ? null : max(0, round((float) $receiptTotal, 2));
+
+// What the split is worked out from, before and after this save: if it changes, a Fun Mode game's result is void.
+$receiptKey = fn () => json_encode([
+    q('SELECT name, qty, unit_price FROM receipt_items WHERE bill_id = ? ORDER BY id', [$bill['id']])->fetchAll(PDO::FETCH_NUM),
+    q('SELECT tax, service_charge, discount, receipt_total FROM bills WHERE id = ?', [$bill['id']])->fetch(PDO::FETCH_NUM),
+]);
+$before = $receiptKey();
 
 $existing = [];
 foreach (q('SELECT id, name, qty, unit_price, ocr_name FROM receipt_items WHERE bill_id = ?', [$bill['id']]) as $row) {
@@ -62,15 +71,15 @@ foreach ($clean as $pos => $it) {
             $it['name'] !== $old['ocr_name'] || $it['qty'] !== (int) $old['qty'] || cents($it['unit_price']) !== cents($old['unit_price'])
         );
         q(
-            'UPDATE receipt_items SET position = ?, name = ?, qty = ?, unit_price = ?, needs_review = ?, suggestion = IF(?, suggestion, NULL),
+            'UPDATE receipt_items SET position = ?, name = ?, qty = ?, unit_price = ?, promo = ?, needs_review = ?, suggestion = IF(?, suggestion, NULL),
              was_corrected = GREATEST(was_corrected, ?) WHERE id = ?',
-            [$pos, $it['name'], $it['qty'], $it['unit_price'], (int) $it['needs_review'], (int) $it['needs_review'], (int) $corrected, $it['id']]
+            [$pos, $it['name'], $it['qty'], $it['unit_price'], $it['promo'], (int) $it['needs_review'], (int) $it['needs_review'], (int) $corrected, $it['id']]
         );
         $keep[] = $it['id'];
     } else {
         q(
-            "INSERT INTO receipt_items (bill_id, position, name, qty, unit_price, source) VALUES (?, ?, ?, ?, ?, 'manual')",
-            [$bill['id'], $pos, $it['name'], $it['qty'], $it['unit_price']]
+            "INSERT INTO receipt_items (bill_id, position, name, qty, unit_price, promo, source) VALUES (?, ?, ?, ?, ?, ?, 'manual')",
+            [$bill['id'], $pos, $it['name'], $it['qty'], $it['unit_price'], $it['promo']]
         );
         $keep[] = (int) $pdo->lastInsertId();
     }
@@ -84,6 +93,15 @@ q(
     "UPDATE bills SET status = 'active', tax = ?, service_charge = ?, discount = ?, receipt_total = ? WHERE id = ?",
     [$tax, $svc, $discount, $receiptTotal, $bill['id']]
 );
+if ($bill['split_mode'] === 'game' && $receiptKey() !== $before) {
+    // The receipt changed after a game decided the split: replay it on the corrected bill.
+    require_once __DIR__ . '/../includes/games.php';
+    clear_game_result($bill);
+    q("UPDATE game_sessions SET status = 'cancelled', version = version + 1 WHERE bill_id = ? AND status <> 'cancelled'", [$bill['id']]);
+}
 $pdo->commit();
 
-json_ok(['redirect' => 'assign-items?bill=' . $bill['id']]);
+// Fun Mode bills play their game before the split.
+require_once __DIR__ . '/../includes/games.php';
+$bill['status'] = 'active';
+json_ok(['redirect' => (game_pending($bill) ? 'game?bill=' : 'assign-items?bill=') . $bill['id']]);

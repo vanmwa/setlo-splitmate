@@ -12,11 +12,11 @@ require __DIR__ . '/../partials/head.php';
 ?>
 <div id="app" class="device device-narrow" v-cloak>
 
-  <div class="app-hero px-5 pb-5 pt-8">
+  <div class="app-hero px-5 pb-5 pt-8" :class="{ 'fun-hero': g && g.fun_mode }">
     <div class="flex items-center gap-3">
       <?php require __DIR__ . '/../partials/back.php'; ?>
       <div class="min-w-0 flex-1">
-        <h1 class="truncate text-[21px] font-extrabold tracking-tight">{{ g ? g.name : 'Group' }}</h1>
+        <h1 class="flex items-center gap-2 text-[21px] font-extrabold tracking-tight"><span class="truncate">{{ g ? g.name : 'Group' }}</span><span v-if="g && g.fun_mode" class="fun-chip">🎉 Fun Mode</span></h1>
         <p class="text-[12px] font-medium text-brand-50/90">{{ members.length }} people · {{ bills.length }} bill{{ bills.length === 1 ? '' : 's' }}<span v-if="open > 0"> · {{ peso(open) }} still unpaid</span></p>
       </div>
     </div>
@@ -27,7 +27,18 @@ require __DIR__ . '/../partials/head.php';
 
   <spinner v-if="loading"></spinner>
   <div v-else class="flex-1 space-y-4 px-5 pb-6 pt-4">
-    <a :href="'my-bills?new=1&group=' + groupId" class="btn-pill btn-pill-primary">+ New bill with this group</a>
+    <a :href="'my-bills?new=1&group=' + groupId" class="btn-pill" :class="g.fun_mode ? 'btn-fun' : 'btn-pill-primary'">+ New bill with this group</a>
+
+    <!-- Fun Mode: after the receipt scan, a game decides who pays (pages/game.php). Only the group's maker switches it. -->
+    <div v-if="g.is_owner || g.fun_mode" class="tile flex items-center gap-3 p-3.5" :class="{ '!border-fuchsia-200 !bg-fuchsia-50/60': g.fun_mode }">
+      <span class="text-[24px]" aria-hidden="true">{{ g.fun_mode ? '🎉' : '🎲' }}</span>
+      <div class="min-w-0 flex-1">
+        <p class="text-[13.5px] font-bold text-ink">Fun Mode</p>
+        <p class="text-[11.5px] text-slate-500">After the receipt scan, play Guess the Bill, Roulette or Mystery Card to decide who pays.</p>
+      </div>
+      <button v-if="g.is_owner" @click="setFun(!g.fun_mode)" role="switch" :aria-checked="g.fun_mode ? 'true' : 'false'" aria-label="Fun Mode" class="switch" :disabled="busy"><span></span></button>
+      <span v-else class="fun-badge">On</span>
+    </div>
 
     <!-- Trail: every payment on the group's bills, with receipts -->
     <template v-if="tab === 'trail'">
@@ -40,7 +51,7 @@ require __DIR__ . '/../partials/head.php';
             <div class="min-w-0 flex-1">
               <p class="truncate text-[13px] font-semibold text-ink">{{ who(p.from) }} → {{ who(p.to) }}</p>
               <p class="truncate text-[11.5px] text-slate-400">
-                <a :href="'settlement-audit?id=' + p.settlement_id" class="hover:underline">{{ p.bill_name }}</a> · {{ methodName[p.method] }}<span v-if="p.paid_by.id !== p.from.id"> · paid by {{ who(p.paid_by) }}</span> ·
+                <a :href="'settlement-audit?id=' + p.settlement_id" class="hover:underline">{{ p.bill_name }}</a> · {{ methodWithVia(p, methodName) }}<span v-if="p.paid_by.id !== p.from.id"> · paid by {{ who(p.paid_by) }}</span> ·
                 <span :class="statusTone[p.status]" class="font-semibold">{{ statusName[p.status] }}</span>
               </p>
             </div>
@@ -102,7 +113,7 @@ Setlo.mount({
     groupId: <?= $groupId ?>, me: <?= (int) $user['id'] ?>, loading: true, busy: false,
     g: null, members: [], bills: [], trail: [], open: 0, search: '', results: [], timer: null,
     tab: 'trail', tabs: [{ key: 'trail', label: 'Payments' }, { key: 'bills', label: 'Bills' }, { key: 'people', label: 'People' }],
-    methodName: { online: 'Online', transfer: 'Transfer', cash: 'Cash', credit: 'Credit' },
+    methodName: { online: 'Online', transfer: 'Transfer', cash: 'Cash', credit: 'Kept change' },
     statusName: { confirmed: 'Received', awaiting: 'Waiting', rejected: 'Rejected' },
     statusTone: { confirmed: 'text-emerald-600', awaiting: 'text-blue-600', rejected: 'text-red-600' },
   }),
@@ -159,6 +170,13 @@ Setlo.mount({
       if (name === null) return;
       const r = await Setlo.run(this, () => api.post('groups.php', { action: 'rename', id: this.groupId, name: name.trim() }));
       if (r) await this.load();
+    },
+    async setFun(on) {
+      const r = await Setlo.run(this, () => api.post('groups.php', { action: 'set_fun_mode', id: this.groupId, on }));
+      if (r) {
+        this.g.fun_mode = r.fun_mode;
+        Setlo.toast(r.fun_mode ? '🎉 Fun Mode is on — new bills start with a game.' : 'Fun Mode is off.');
+      }
     },
     async leave() {
       if (!(await Setlo.confirm({ title: 'Leave ' + this.g.name + '?', text: 'Your bills and payments stay as they are.', confirmText: 'Leave', danger: true }))) return;

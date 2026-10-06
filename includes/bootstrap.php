@@ -112,7 +112,7 @@ function current_user(): ?array
     if ($user === false) {
         $user = null;
         if (!empty($_SESSION['user_id'])) {
-            $row = q('SELECT id, full_name, email, payment_method, avatar_color, role, status FROM users WHERE id = ?', [$_SESSION['user_id']])->fetch();
+            $row = q('SELECT id, full_name, email, payment_method, avatar_color, avatar, role, status FROM users WHERE id = ?', [$_SESSION['user_id']])->fetch();
             if ($row && $row['status'] === 'active') {
                 $row['id'] = (int) $row['id'];
                 $user = $row;
@@ -175,6 +175,70 @@ function require_admin(): array
         redirect('pages/admin-login');
     }
     return $user;
+}
+
+// ---------- Installment interest ----------
+// The only rates allowed (% of what's still left, added after each partial payment): two low, one moderate.
+// Fixed choices instead of a typed number, so nobody can set an abusive rate. Bills and utang both use these.
+const INSTALLMENT_RATES = [
+    ['rate' => 1, 'label' => 'Light',    'hint' => 'Barely noticeable'],
+    ['rate' => 2, 'label' => 'Low',      'hint' => 'A small nudge to finish'],
+    ['rate' => 5, 'label' => 'Moderate', 'hint' => 'For bigger or longer debts'],
+];
+
+/** The interest rate sent with a request: null for none, or one of INSTALLMENT_RATES (anything else fails). */
+function installment_rate($raw): ?float
+{
+    if ($raw === null || $raw === '' || (float) $raw === 0.0) {
+        return null;
+    }
+    foreach (INSTALLMENT_RATES as $r) {
+        if (abs((float) $raw - $r['rate']) < 0.001) {
+            return (float) $r['rate'];
+        }
+    }
+    $allowed = implode('%, ', array_column(INSTALLMENT_RATES, 'rate')) . '%';
+    fail("Choose one of the installment rates: $allowed.", 422, ['fields' => ['interest' => "Choose $allowed."]]);
+}
+
+// ---------- Profile pictures ----------
+// users.avatar is 'pfp/<file>' (a preset in assets/pfp, already a circle) or 'up/<file>' (a gallery photo in
+// uploads/avatars, served by api/avatar.php to signed-in users); NULL shows the initials instead.
+
+/** The preset pictures (file names in assets/pfp), in a stable natural order. */
+function avatar_presets(): array
+{
+    static $files = null;
+    if ($files === null) {
+        $files = array_map('basename', glob(__DIR__ . '/../assets/pfp/*.{png,jpg,jpeg,webp}', GLOB_BRACE) ?: []);
+        natcasesort($files);
+        $files = array_values($files);
+    }
+    return $files;
+}
+
+/** Image URL of a users.avatar value, or null for initials. */
+function avatar_url(?string $avatar, int $userId): ?string
+{
+    if (!$avatar) {
+        return null;
+    }
+    if (str_starts_with($avatar, 'pfp/')) {
+        $file = substr($avatar, 4);
+        return in_array($file, avatar_presets(), true) ? url('assets/pfp/' . rawurlencode($file)) : null;
+    }
+    // ?v= changes with the file, so a new photo isn't hidden behind the cached old one.
+    return str_starts_with($avatar, 'up/') ? url('api/avatar.php') . '?u=' . $userId . '&v=' . substr(md5($avatar), 0, 8) : null;
+}
+
+/** A user's users.avatar value, fetched once per request. */
+function user_avatar(int $userId): ?string
+{
+    static $cache = [];
+    if (!array_key_exists($userId, $cache)) {
+        $cache[$userId] = q('SELECT avatar FROM users WHERE id = ?', [$userId])->fetchColumn() ?: null;
+    }
+    return $cache[$userId];
 }
 
 function initials(string $name): string

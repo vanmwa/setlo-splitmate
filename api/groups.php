@@ -74,7 +74,7 @@ if (method() === 'GET') {
             [$g['id'], $me['id']]
         )->fetchColumn();
         json_ok([
-            'group'   => ['id' => $g['id'], 'name' => $g['name'], 'owner_id' => $g['owner_id'], 'is_owner' => $g['owner_id'] === $me['id'], 'created_at' => $g['created_at']],
+            'group'   => ['id' => $g['id'], 'name' => $g['name'], 'owner_id' => $g['owner_id'], 'is_owner' => $g['owner_id'] === $me['id'], 'fun_mode' => (bool) $g['fun_mode'], 'created_at' => $g['created_at']],
             'members' => group_members($g['id']),
             'bills'   => array_map(fn ($b) => bill_card($b) + ['link' => bill_link($b, $me['id'])], $bills),
             'open'    => round((float) $open, 2),
@@ -83,6 +83,7 @@ if (method() === 'GET') {
                 'receipt_no'  => $p['status'] === 'confirmed' ? receipt_no((int) $p['id']) : null,
                 'amount'      => (float) $p['amount'],
                 'method'      => $p['method'],
+                'online_via'  => $p['online_via'],
                 'status'      => $p['status'],
                 'bill_id'     => (int) $p['bill_id'],
                 'bill_name'   => $p['bill_name'],
@@ -104,6 +105,7 @@ if (method() === 'GET') {
         'id'       => (int) $g['id'],
         'name'     => $g['name'],
         'is_owner' => (int) $g['owner_id'] === $me['id'],
+        'fun_mode' => (bool) $g['fun_mode'],
         'members'  => group_members((int) $g['id']),
         'bills'    => (int) q('SELECT COUNT(*) FROM bills b WHERE b.group_id = ? AND EXISTS (SELECT 1 FROM bill_members bm WHERE bm.bill_id = b.id AND bm.user_id = ?)', [$g['id'], $me['id']])->fetchColumn(),
     ], $groups)]);
@@ -138,6 +140,12 @@ switch (input('action', '')) {
         $g = my_group($me, true);
         q('UPDATE user_groups SET name = ? WHERE id = ?', [group_name(), $g['id']]);
         break;
+
+    case 'set_fun_mode':
+        // Fun Mode: the group's bills offer a game after the receipt review (pages/game.php).
+        $g = my_group($me, true);
+        q('UPDATE user_groups SET fun_mode = ? WHERE id = ?', [input('on') ? 1 : 0, $g['id']]);
+        json_ok(['fun_mode' => (bool) input('on')]);
 
     case 'add_member':
         $g = my_group($me, true);

@@ -8,7 +8,7 @@ $step = 1;
 $billId = (int) ($_GET['bill'] ?? 0);
 $adding = $billId && !empty($_GET['add']); // "+ Add another receipt" from the Review screen
 $back = $adding ? 'review-items.php?bill=' . $billId : 'my-bills.php';
-$headExtra = ['assets/js/docscan.js'];
+$headExtra = ['assets/js/docscan-core.js', 'assets/js/docscan.js'];
 require __DIR__ . '/../partials/head.php';
 ?>
 <div id="app" class="device device-narrow" v-cloak>
@@ -51,7 +51,7 @@ require __DIR__ . '/../partials/head.php';
       <canvas ref="overlay" v-show="state === 'camera'" class="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true"></canvas>
       <div v-if="state === 'camera'" class="absolute inset-x-0 bottom-4 flex flex-wrap justify-center gap-1.5 px-3" role="status" aria-live="polite">
         <span v-if="guide.outline !== 'off'" class="vf-chip" :class="guide.outline === 'loading' ? '' : guide.found ? '!bg-emerald-500/80' : '!bg-amber-500/85'">
-          {{ guide.outline === 'loading' ? '… Finding edges' : guide.found ? '▭ Receipt found' : '▭ No receipt in frame' }}
+          {{ guide.outline === 'loading' ? '… Finding edges' : guide.found ? (guide.sides ? '▯ Receipt sides found' : guide.count > 1 ? '▭ ' + guide.count + ' receipts found' : '▭ Receipt found') : '▭ No receipt in frame' }}
         </span>
         <span v-if="guide.light" class="vf-chip" :class="guide.light === 'ok' ? '!bg-emerald-500/80' : '!bg-amber-500/85'">{{ lightLabel[guide.light] }}</span>
         <span v-if="guide.light" class="vf-chip" :class="guide.sharp ? '!bg-emerald-500/80' : '!bg-amber-500/85'">{{ guide.sharp ? '✓ Sharp' : '≋ Blurry' }}</span>
@@ -101,16 +101,14 @@ require __DIR__ . '/../partials/head.php';
       <p v-if="!ocrReady" class="mt-4 rounded-2xl bg-amber-50 px-4 py-2.5 text-[12px] text-amber-800">
         Receipt scanning isn't set up on this server yet: {{ ocrProblem }}. Photos are still saved, and you'll type the items on the next screen.
       </p>
-      <p class="mt-4 text-[12px] text-slate-500">Faded or handwritten? <button @click="manual" class="font-bold text-brand-700">Skip to manual entry</button></p>
-      <p class="mt-1.5 text-[12px] text-slate-500">No receipt handy? <button @click="demo" class="font-bold text-brand-700">Load demo receipt</button></p>
-    </div>
+      <p class="mt-4 text-[12px] text-slate-500">Faded or handwritten? <button @click="manual" class="font-bold text-brand-700">Skip to manual entry</button></p>    </div>
 
     <div v-else-if="state === 'camera'" class="text-center">
       <p class="mt-5 text-[16px] font-extrabold" :class="hint.ready ? 'text-emerald-600' : 'text-ink'">{{ hint.title }}</p>
       <p class="mt-1 text-[13px] leading-snug text-slate-500">{{ hint.text }}</p>
       <div class="mt-5 grid grid-cols-2 gap-3">
         <button @click="cancelCamera" class="btn-pill btn-pill-outline">Cancel</button>
-        <button @click="capture" class="btn-pill btn-pill-primary">
+        <button @click="capture" :disabled="busy" class="btn-pill btn-pill-primary">
           <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.5l1-2h11l1 2H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><circle cx="12" cy="13" r="3.2"/></svg>
           Capture
         </button>
@@ -161,7 +159,7 @@ require __DIR__ . '/../partials/head.php';
 
 <script>
 // Kept outside Vue's reactivity: the stream, the frame analyser and its latest result (outline in video pixels).
-let cameraStream = null, analyzer = null, scanTimer = null, lastScan = null;
+let cameraStream = null, analyzer = null, scanTimer = null, lastScan = null, scanRound = 0;
 addEventListener('pagehide', () => cameraStream?.getTracks().forEach((t) => t.stop()));
 Setlo.mount({
   data: () => ({
@@ -173,19 +171,25 @@ Setlo.mount({
     // Photos waiting to be scanned ({ key, file, url }), and whether they are sections of one long receipt.
     queue: [], partsOfOne: false, maxPhotos: 6, step: { i: 1, n: 1 },
     // Live camera guidance. outline: 'loading' | 'on' | 'off' (OpenCV couldn't load: light and blur checks only).
-    guide: { outline: 'loading', found: false, light: null, sharp: true, stable: false },
+    // count: receipts outlined in view (two side by side are each saved as their own receipt).
+    guide: { outline: 'loading', found: false, count: 0, sides: false, light: null, sharp: true, stable: false },
     lightLabel: { ok: '☀ Good light', dark: '☾ Too dark', glare: '✺ Glare' },
   }),
   computed: {
     hint() {
       const g = this.guide;
+      const many = g.count > 1;
       if (!g.light) return { title: 'Fit the whole receipt inside the frame', text: 'Starting the camera…' };
-      if (g.outline === 'on' && !g.found) return { title: 'Fit the whole receipt inside the frame', text: 'Lay it flat on a darker surface so its edges stand out.' };
+      if (g.outline === 'on' && !g.found) return { title: 'Fit the whole receipt inside the frame', text: 'Lay it flat on a darker surface, or hold it up so its edges stand out. Two receipts? Put them side by side.' };
       if (g.light === 'dark') return { title: 'Too dark to read', text: 'Move to better light or turn on a lamp.' };
       if (g.light === 'glare') return { title: 'Glare on the receipt', text: 'Tilt the receipt or phone away from the light.' };
-      if (!g.sharp) return { title: 'Blurry — hold still', text: 'Keep the phone steady and let it focus.' };
-      if (g.outline === 'on' && !g.stable) return { title: 'Hold steady…', text: 'Almost there.' };
-      return { title: 'Ready — tap Capture', text: g.outline === 'on' ? 'The photo will be cropped to the green outline.' : 'Item names, prices, tax and total should be clearly visible.', ready: true };
+      if (!g.sharp) return { title: 'Blurry — hold still', text: 'Keep the camera steady and let it focus.' };
+      if (g.outline === 'on' && !g.stable) return { title: many ? g.count + ' receipts — hold steady…' : 'Hold steady…', text: 'Almost there.' };
+      if (many) return { title: g.count + ' receipts in view — tap Capture', text: 'Each one is saved as its own receipt on this bill.', ready: true };
+      const text = g.outline === 'on'
+        ? (g.sides ? 'The photo will be cropped to the receipt’s left and right edges.' : 'The photo will be cropped to the green outline.')
+        : g.outline === 'loading' ? 'Loading receipt detection… you can capture already.' : 'Item names, prices, tax and total should be clearly visible.';
+      return { title: 'Ready — tap Capture', text, ready: true };
     },
     pickable() { return this.bills.filter((b) => b.status === 'draft' || b.status === 'active'); },
     queueFull() { return this.queue.length >= this.maxPhotos; },
@@ -257,29 +261,38 @@ Setlo.mount({
         return;
       }
       this.state = 'camera';
-      this.guide = { outline: 'loading', found: false, light: null, sharp: true, stable: false };
+      this.guide = { outline: 'loading', found: false, count: 0, sides: false, light: null, sharp: true, stable: false };
       await this.$nextTick();
       this.$refs.video.srcObject = cameraStream;
-      analyzer = Setlo.docscan.createAnalyzer();
-      Setlo.docscan.load().then((cv) => { if (this.state === 'camera') this.guide.outline = cv ? 'on' : 'off'; });
+      analyzer = Setlo.docscan.createAnalyzer((outline) => { if (this.state === 'camera') this.guide.outline = outline; });
       this.watchFrames();
     },
-    // Re-check the frame a few times a second: outline, light, sharpness.
-    watchFrames() {
+    // Re-check the frame a few times a second: outline, light, sharpness. The checks run in a worker; the next
+    // round is only scheduled once this one is back, so slow phones skip frames instead of piling them up.
+    async watchFrames() {
       clearTimeout(scanTimer);
+      const round = ++scanRound;
       if (!cameraStream || !analyzer) return;
       const v = this.$refs.video;
-      const r = v && analyzer.analyze(v);
+      const r = v && await analyzer.analyze(v);
+      if (round !== scanRound) return; // camera closed, Capture pressed or the loop restarted meanwhile
       if (r) {
         lastScan = r;
-        const outline = this.guide.outline === 'loading' && r.outline ? 'on' : this.guide.outline;
-        this.guide = { outline, found: !!r.quad, light: r.light, sharp: r.sharp, stable: r.stable };
-        Setlo.docscan.drawOverlay(this.$refs.overlay, v, r.quad, r.light === 'ok' && r.sharp);
+        const g = this.guide;
+        const outline = g.outline === 'loading' && r.outline ? 'on' : g.outline;
+        const count = (r.quads || []).length;
+        // Only touch reactive state when something changed, so the page isn't re-rendered on every frame.
+        if (g.outline !== outline || g.found !== !!r.quad || g.count !== count || g.sides !== r.sides || g.light !== r.light || g.sharp !== r.sharp || g.stable !== r.stable) {
+          this.guide = { outline, found: !!r.quad, count, sides: r.sides, light: r.light, sharp: r.sharp, stable: r.stable };
+        }
+        Setlo.docscan.drawOverlay(this.$refs.overlay, v, r.quads, r.light === 'ok' && r.sharp);
       }
-      scanTimer = setTimeout(this.watchFrames, 150);
+      scanTimer = setTimeout(this.watchFrames, 200);
     },
     stopCamera() {
       clearTimeout(scanTimer);
+      scanRound++;
+      analyzer?.close();
       analyzer = null;
       lastScan = null;
       cameraStream?.getTracks().forEach((t) => t.stop());
@@ -294,9 +307,11 @@ Setlo.mount({
     async capture() {
       const v = this.$refs.video;
       if (!v.videoWidth) return; // camera not showing a picture yet
-      const scan = lastScan;
+      if (this.busy) return;
+      const scan = lastScan, a = analyzer;
+      clearTimeout(scanTimer); // freeze the guidance while asking and cropping
+      scanRound++;
       if (scan && (scan.light === 'dark' || !scan.sharp)) {
-        clearTimeout(scanTimer); // freeze the guidance while asking
         const ok = await Setlo.confirm({
           title: scan.light === 'dark' ? 'Photo may be too dark' : 'Photo may be blurry',
           text: 'Item names may come out wrong. Capture anyway?', confirmText: 'Capture anyway', cancelText: 'Retake',
@@ -304,8 +319,17 @@ Setlo.mount({
         if (!ok) { this.watchFrames(); return; }
         if (!cameraStream) return;
       }
-      // Cropped and flattened to the outline when one was found; otherwise the whole frame.
-      let canvas = scan && scan.quad ? Setlo.docscan.warp(v, scan.quad) : null;
+      // One receipt: cropped and flattened to its outline. Several: cropped to the area around all of them (not
+      // flattened, so none is cut off; the scanner saves each separately). None found: the whole frame.
+      this.busy = true;
+      let canvas = null;
+      try {
+        if (scan && a && scan.quads && scan.quads.length > 1) canvas = a.cropAround(v, scan.quads);
+        else canvas = scan && scan.quad && a ? await a.warp(v, scan.quad) : null;
+      } finally {
+        this.busy = false;
+      }
+      if (!cameraStream) return;
       if (!canvas) {
         canvas = document.createElement('canvas');
         canvas.width = v.videoWidth;
@@ -385,13 +409,6 @@ Setlo.mount({
     async manual() {
       const r = await Setlo.run(this, () => api.post('receipts.php', { action: 'manual', bill_id: this.billId }));
       if (r) location.href = r.redirect;
-    },
-    async demo() {
-      this.state = 'scanning';
-      requestAnimationFrame(() => { this.progress = 100; });
-      const r = await Setlo.run(this, () => api.post('receipts.php', { action: 'demo', bill_id: this.billId, mode: this.addMode ? 'add' : 'replace' }));
-      if (r) setTimeout(() => { location.href = r.redirect; }, 1200);
-      else this.reset();
     },
   },
 });

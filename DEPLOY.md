@@ -143,11 +143,11 @@ Command-line PHP does not see Apache's `SetEnv`, so pass the DB credentials inli
 
 ```sh
 cd /var/www/html
-sudo -u www-data env DB_NAME=setlo DB_USER=setlo DB_PASS=CHANGE_ME php database/setup.php     # schema + demo data (drops existing tables!)
+sudo -u www-data env DB_NAME=setlo DB_USER=setlo DB_PASS=CHANGE_ME php database/setup.php     # schema + admin account (drops existing tables!)
 sudo -u www-data env DB_NAME=setlo DB_USER=setlo DB_PASS=CHANGE_ME php database/migrate.php
 ```
 
-`setup.php` creates demo accounts with the password `password123` and an admin with `admin12345`. On a public server, change these after the defense, or skip `setup.php` and import `database/schema.sql` only.
+`setup.php` creates the tables and one App Manager account (`admin@setlo.app` / `admin12345`); everyone else signs up. On a public server, change the admin password right after the first sign-in.
 
 ## 8. Free domain + HTTPS
 

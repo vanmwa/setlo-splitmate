@@ -5,7 +5,7 @@
   const PAD = 40;
   const FONT = '"Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif';
   const peso = (n) => '₱' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const METHOD = { online: 'Online via PayMongo', transfer: 'Transfer', cash: 'Cash, in person', credit: 'Credit from an earlier overpayment' };
+  const METHOD = { online: 'Online via PayMongo', transfer: 'Transfer', cash: 'Cash, in person', credit: 'Kept change from earlier cash' };
   const when = (s) => new Date(String(s).replace(' ', 'T')).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 
   function text(ctx, str, x, y, { size = 20, weight = 600, color = '#0f172a', align = 'left', max } = {}) {
@@ -26,12 +26,12 @@
     if (r.paid_by.id !== r.from.id) out.push(['Paid by', r.paid_by.name + (r.pay_back ? ' (to be paid back)' : '')]);
     out.push(['Paid to', r.to.name]);
     out.push([r.kind === 'loan' ? 'For utang' : 'For bill', r.for]);
-    out.push(['Method', METHOD[r.method] || r.method]);
+    out.push(['Method', Setlo.methodWithVia(r, METHOD)]);
     if (r.payment_ref) out.push([r.method === 'online' ? 'PayMongo ref' : 'Reference no.', r.payment_ref]);
     if (r.tendered !== null && r.tendered > r.amount) {
       out.push(['Cash handed over', peso(r.tendered)]);
       if (r.change > 0) out.push(['Change given back', peso(r.change)]);
-      if (r.credit > 0) out.push(['Kept as credit', peso(r.credit)]);
+      if (r.credit > 0) out.push(['Kept, owed back (Utang)', peso(r.credit)]);
     }
     out.push(null); // divider
     out.push(['Paid so far', peso(r.paid_so_far)]);
@@ -42,7 +42,11 @@
   async function render(r) {
     try { await document.fonts.load(`800 24px ${FONT}`); await document.fonts.load(`600 24px ${FONT}`); } catch (e) { /* system font */ }
     const rows = lines(r);
-    const height = 300 + rows.length * 40 + 70;
+    const ROW = 40, GAP = 10; // line height; extra space a divider adds
+    const CARD_TOP = 210, CARD_PAD = 40; // the first and last lines' centres sit this far inside the white card
+    const lastY = CARD_TOP + CARD_PAD + rows.reduce((y, row) => y + (row ? ROW : GAP), 0) - ROW;
+    const cardBottom = lastY + CARD_PAD;
+    const height = cardBottom + 56;
     const scale = 2;
     const canvas = document.createElement('canvas');
     canvas.width = W * scale;
@@ -59,20 +63,21 @@
     text(ctx, peso(r.amount), PAD, 104, { size: 42, weight: 800, color: '#fff' });
     text(ctx, r.no + ' · ' + when(r.received_at), PAD, 152, { size: 16, weight: 600, color: 'rgba(255,255,255,.9)' });
 
-    ctx.beginPath(); ctx.roundRect(PAD / 2, 210, W - PAD, height - 260, 22); ctx.fillStyle = '#fff'; ctx.fill();
-    let y = 250;
+    ctx.beginPath(); ctx.roundRect(PAD / 2, CARD_TOP, W - PAD, cardBottom - CARD_TOP, 22); ctx.fillStyle = '#fff'; ctx.fill();
+    let y = CARD_TOP + CARD_PAD;
     for (const row of rows) {
       if (!row) {
-        ctx.fillStyle = '#e2e8f0'; ctx.fillRect(PAD, y - 12, W - PAD * 2, 1.5);
-        y += 10;
+        // Halfway between the line above and the one below
+        ctx.fillStyle = '#e2e8f0'; ctx.fillRect(PAD, y - (ROW - GAP) / 2 - 0.75, W - PAD * 2, 1.5);
+        y += GAP;
         continue;
       }
       text(ctx, row[0], PAD + 6, y, { size: 17, weight: 600, color: '#64748b' });
       text(ctx, row[1], W - PAD - 6, y, { size: 18, weight: 700, align: 'right', max: W - PAD * 2 - 200 });
-      y += 40;
+      y += ROW;
     }
     const by = r.method === 'online' ? 'Verified by PayMongo' : 'Confirmed by ' + r.to.name.split(' ')[0];
-    text(ctx, by + ' · recorded on Setlo', W / 2, height - 28, { size: 14, weight: 600, color: '#94a3b8', align: 'center' });
+    text(ctx, by + ' · recorded on Setlo', W / 2, cardBottom + 28, { size: 14, weight: 600, color: '#94a3b8', align: 'center' });
     return canvas;
   }
 
@@ -93,10 +98,12 @@
     const url = URL.createObjectURL(blob);
     const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
     const res = await global.Swal.fire({
-      html: `<img src="${url}" alt="Receipt ${r.no} for ${global.Setlo.escapeHtml(peso(r.amount))}" style="width:100%;border-radius:16px" />`,
+      // The title row leaves room for the ✕, so it never sits on the receipt image.
+      html: `<p class="mb-3 pr-10 text-left text-[15px] font-extrabold leading-8 text-ink">Receipt ${global.Setlo.escapeHtml(r.no)}</p>
+             <img src="${url}" alt="Receipt ${r.no} for ${global.Setlo.escapeHtml(peso(r.amount))}" style="width:100%;border-radius:16px" />`,
       showConfirmButton: true, confirmButtonText: 'Save image', confirmButtonColor: '#0d9488',
       showDenyButton: canShare, denyButtonText: 'Share', denyButtonColor: '#64748b',
-      showCloseButton: true, padding: '1rem',
+      showCloseButton: true, padding: '1rem', customClass: { popup: 'setlo-swal' },
     });
     if (res.isConfirmed) {
       const a = document.createElement('a');

@@ -5,6 +5,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/payments.php'; // apply_credits(), used as new debts are created
+require_once __DIR__ . '/achievements.php';
 
 function cents($amount): int
 {
@@ -67,14 +68,17 @@ function public_user(array $u): array
         'first'    => first_name($u['full_name']),
         'initials' => initials($u['full_name']),
         'color'    => $u['avatar_color'],
+        // Profile picture URL, or null for the initials (callers that didn't select users.avatar get it looked up)
+        'photo'    => avatar_url(array_key_exists('avatar', $u) ? $u['avatar'] : user_avatar((int) $u['id']), (int) $u['id']),
         'is_guest' => ($u['role'] ?? '') === 'guest',
+        'badge'    => featured_badge($u['featured_achievement'] ?? null),
     ];
 }
 
 function bill_members(int $billId): array
 {
     $rows = q(
-        'SELECT u.id, u.full_name, u.avatar_color, u.role, u.payment_method, u.payment_account, m.discount_type, m.percent FROM bill_members m
+        'SELECT u.id, u.full_name, u.avatar_color, u.role, u.featured_achievement, u.payment_method, u.payment_account, m.discount_type, m.percent, m.game_weight, m.game_share FROM bill_members m
          JOIN users u ON u.id = m.user_id WHERE m.bill_id = ? ORDER BY m.joined_at, u.id',
         [$billId]
     )->fetchAll();
@@ -83,6 +87,8 @@ function bill_members(int $billId): array
         'payment_account' => $u['payment_account'],
         'discount_type'   => $u['discount_type'],
         'percent'         => $u['percent'] === null ? null : (float) $u['percent'],
+        'game_weight'     => $u['game_weight'] === null ? null : (int) $u['game_weight'],
+        'game_share'      => $u['game_share'] === null ? null : (int) $u['game_share'],
     ], $rows);
 }
 
@@ -103,6 +109,7 @@ function bill_items(int $billId): array
         'qty'           => (int) $i['qty'],
         'unit_price'    => (float) $i['unit_price'],
         'line_total'    => pesos((int) $i['qty'] * cents($i['unit_price'])),
+        'promo'         => (float) ($i['promo'] ?? 0),
         'source'        => $i['source'],
         'ocr_name'      => $i['ocr_name'],
         'printed_name'  => $i['printed_name'],
@@ -192,6 +199,9 @@ function compute_shares(array $bill, array $members, array $items): array
 {
     if (($bill['split_mode'] ?? 'items') === 'percent') {
         return compute_percent_shares($bill, $members, $items);
+    }
+    if (($bill['split_mode'] ?? 'items') === 'game') {
+        return compute_game_shares($bill, $members, $items);
     }
     $ids = array_column($members, 'id');
     $shares = array_fill_keys($ids, 0);
@@ -288,6 +298,66 @@ function compute_percent_shares(array $bill, array $members, array $items): arra
     ];
 }
 
+/**
+ * Fun Mode split (pages/game.php decided it). The whole bill total, worked out as in compute_percent_shares(), is
+ * either set member by member (game_share, from Mystery Card — it already adds up to the total) or shared equally
+ * by the members with game_weight 1; weight 0 pays nothing.
+ */
+function compute_game_shares(array $bill, array $members, array $items): array
+{
+    $ids = array_column($members, 'id');
+    $subtotal = array_sum(array_map(fn ($it) => cents($it['line_total']), $items));
+    $taxIncluded = tax_included($bill, $subtotal);
+    $extras = ($taxIncluded ? 0 : cents($bill['tax'])) + cents($bill['service_charge']);
+    $discount = cents($bill['discount'] ?? 0);
+    $total = $subtotal + $extras - $discount;
+    if (array_filter($members, fn ($m) => ($m['game_share'] ?? null) !== null)) {
+        $shares = array_combine($ids, array_map(fn ($m) => (int) ($m['game_share'] ?? 0), $members));
+    } else {
+        $weights = [];
+        foreach ($members as $m) {
+            $weights[$m['id']] = (int) ($m['game_weight'] ?? 1);
+        }
+        $shares = split_proportional($total, $weights);
+    }
+    return [
+        'shares'           => $shares,
+        'subtotal'         => $subtotal,
+        'extras'           => $extras,
+        'tax_included'     => $taxIncluded,
+        'discount'         => $discount,
+        'discount_by'      => array_fill_keys($ids, 0),
+        'total'            => $total,
+        'unassigned'       => 0,
+        'unassigned_count' => 0,
+        'split_mode'       => 'game',
+        'percent_total'    => null,
+    ];
+}
+
+/**
+ * Save a game's outcome as the bill's split. $weights: uid => 1 (shares the bill) or 0 (pays nothing); or
+ * $shares: uid => exact centavos (Mystery Card).
+ */
+function apply_game_result(array $bill, array $weights, ?array $shares = null): void
+{
+    require_editable($bill);
+    q('UPDATE bill_members SET game_weight = NULL, game_share = NULL WHERE bill_id = ?', [$bill['id']]);
+    foreach ($shares ?? $weights as $uid => $v) {
+        q('UPDATE bill_members SET ' . ($shares === null ? 'game_weight' : 'game_share') . ' = ? WHERE bill_id = ? AND user_id = ?',
+            [$shares === null ? ($v ? 1 : 0) : (int) $v, $bill['id'], $uid]);
+    }
+    q("UPDATE bills SET split_mode = 'game' WHERE id = ?", [$bill['id']]);
+}
+
+/** Undo a game's split: back to item-by-item. */
+function clear_game_result(array $bill): void
+{
+    require_editable($bill);
+    q("UPDATE bills SET split_mode = 'items' WHERE id = ?", [$bill['id']]);
+    q('UPDATE bill_members SET game_weight = NULL, game_share = NULL WHERE bill_id = ?', [$bill['id']]);
+}
+
 function bill_settlements(int $billId): array
 {
     $rows = q(
@@ -317,6 +387,7 @@ function settlement_row(array $s): array
         'bill_id'        => (int) $s['bill_id'],
         'bill_name'      => $s['bill_name'] ?? null,
         'bill_kind'      => $s['bill_kind'] ?? 'bill',
+        'bill_closed'    => ($s['bill_status'] ?? null) === 'closed',
         'bill_creator_id'=> (int) ($s['bill_creator_id'] ?? 0),
         'amount'         => (float) $s['amount'],
         'status'         => $s['status'],
@@ -489,7 +560,8 @@ function settlement_plan(array $bill, array $members, array $calc): array
  */
 function start_settling(array $bill, array $actor, ?float $interestRate = null): void
 {
-    $interestRate = $interestRate > 0 ? round($interestRate, 2) : null;
+    // Only the fixed INSTALLMENT_RATES (api/bills.php checks the request; this guards any other caller)
+    $interestRate = $interestRate > 0 && in_array((float) $interestRate, array_map('floatval', array_column(INSTALLMENT_RATES, 'rate')), true) ? (float) $interestRate : null;
     $members = bill_members($bill['id']);
     $items = bill_items($bill['id']);
     if (!$items) {
@@ -524,12 +596,26 @@ function start_settling(array $bill, array $actor, ?float $interestRate = null):
         foreach (array_unique(array_column($plan['transfers'], 1)) as $to) {
             notify($to, 'settling', "{$bill['name']} is now settling — you'll be asked to confirm each payment.", 'bill-detail?bill=' . $bill['id']);
         }
+        achievements_after_settling($bill, $calc);
         maybe_close_bill($bill['id']);
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
         throw $e;
     }
+}
+
+/**
+ * Whether any money has moved on a bill's settlements: a part sent, received, or paid online (even one still at
+ * PayMongo's checkout). Until then the creator may still take the settlement plan back or delete the bill.
+ */
+function bill_money_moved(int $billId): bool
+{
+    return (bool) q(
+        "SELECT 1 FROM settlement_payments p JOIN settlements s ON s.id = p.settlement_id
+         WHERE s.bill_id = ? AND p.status IN ('started','awaiting','confirmed') LIMIT 1",
+        [$billId]
+    )->fetchColumn();
 }
 
 function maybe_close_bill(int $billId): void
