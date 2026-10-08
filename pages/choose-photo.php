@@ -7,7 +7,7 @@ $next = safe_next((string) ($_GET['next'] ?? ''));
 $title = 'Profile picture';
 require __DIR__ . '/../partials/head.php';
 ?>
-<div id="app" class="device device-narrow" v-cloak>
+<div id="app" class="device device-narrow device-solo" v-cloak>
 
   <div class="app-hero px-5 pb-6 pt-8 text-center">
     <p class="text-[12px] font-bold uppercase tracking-[.12em] text-brand-50/90">Welcome to Setlo</p>
