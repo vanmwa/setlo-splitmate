@@ -36,12 +36,28 @@ if (PHP_SAPI !== 'cli' && !headers_sent()) {
     }
 }
 
+/**
+ * Which sign-in this request belongs to: 'admin' (the App Manager panel) or 'user'. Each has its own session cookie, so an
+ * admin and a user can be signed in at the same time in one browser without the second login replacing the first.
+ * This only picks the cookie; what an account may do is still decided by its role.
+ */
+function session_area(): string
+{
+    static $area = null;
+    if ($area === null) {
+        $script = basename((string) ($_SERVER['SCRIPT_NAME'] ?? ''));
+        $hint = (string) ($_SERVER['HTTP_X_SETLO_AREA'] ?? $_POST['area'] ?? $_GET['area'] ?? '');
+        $area = (str_starts_with($script, 'admin') || $hint === 'admin') ? 'admin' : 'user';
+    }
+    return $area;
+}
+
 if (session_status() !== PHP_SESSION_ACTIVE) {
     // Keep session data around long enough for "Remember me" (PHP's default cleans it up after 24 minutes).
     ini_set('session.gc_maxlifetime', (string) REMEMBER_ME_SECONDS);
     ini_set('session.use_strict_mode', '1');   // never adopt a session id the server didn't create
     ini_set('session.use_only_cookies', '1');
-    session_name('setlo_sid');
+    session_name(session_area() === 'admin' ? 'setlo_admin_sid' : 'setlo_sid');
     session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax', 'path' => '/', 'secure' => is_https()]);
     session_start();
 }

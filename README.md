@@ -172,6 +172,7 @@ Role is never fixed by who created the Bill — it's determined by who paid the 
 - Guests land on `pages/login`; the old splash page redirects there. Log in and **Create account** share one design: brand and features on the left, the card in the middle, an illustrative phone on the right. The side columns hide on smaller screens.
 - **Remember me** keeps you signed in for 30 days. Untick it on shared computers.
 - **Continue with Google** works once a Google OAuth client ID is set (`GOOGLE_CLIENT_ID`; see DEPLOY.md → *Google sign-in*). Until then, the button explains that it isn't set up.
+- **Admin and user sign-ins are separate.** The App Manager panel has its own session cookie (`setlo_admin_sid`), so an admin and a user can be signed in side by side in one browser (different tabs) without one replacing the other.
 - **Forgot password?** Like Facebook: the user enters their email, gets a 6-digit code (valid 10 minutes, 5 tries), then chooses a new password. Email goes out over SMTP — set `SMTP_USER` / `SMTP_PASS` once in `config/local.php` (Gmail needs an App Password; test with `php tools	est-mail.php you@example.com`). If email isn't set up, the app manager can still reset it in **Admin → Users → Reset password** and hand over a temporary password.
 
 ## Pay-me QR, validation and security

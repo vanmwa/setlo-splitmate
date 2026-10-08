@@ -90,6 +90,9 @@ switch ($action) {
         if ($u['status'] !== 'active') {
             fail('This account is suspended. Contact the app manager.', 403);
         }
+        if (!$asAdmin && session_area() === 'user' && $u['role'] === 'admin') {
+            fail('Admin accounts sign in on the admin page.', 403);
+        }
         if ($asAdmin && $u['role'] !== 'admin') {
             fail('This account does not have admin access.', 403);
         }

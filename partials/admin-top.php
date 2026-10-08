@@ -32,6 +32,7 @@ $links = [
     <div class="border-t border-white/10 px-3 py-4">
       <form method="post" action="logout" class="admin-nav">
         <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>" />
+        <input type="hidden" name="area" value="admin" />
         <button class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-white/5" title="Log Out">
           <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
           <span class="nav-label">Log Out</span>

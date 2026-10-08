@@ -33,6 +33,7 @@
   async function request(method, path, data, cache = true) {
     if (method !== 'GET') store.clear(); // something may change: never show old numbers again
     const opts = { method, headers: { Accept: 'application/json' }, credentials: 'same-origin' };
+    if (meta('area') === 'admin') opts.headers['X-Setlo-Area'] = 'admin'; // admin pages use the admin sign-in, not the user one
     if (method !== 'GET') {
       opts.headers['X-CSRF-Token'] = meta('csrf-token');
       if (data instanceof FormData) {
