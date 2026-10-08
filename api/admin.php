@@ -90,7 +90,7 @@ switch (input('action', '')) {
         json_ok(['changed' => $n > 0]);
 
     case 'reset_password':
-        // "Forgot password?" path: the app can't send email, so the app manager hands out a temporary password.
+        // Fallback for "Forgot password?" (users normally get an emailed code): the app manager hands out a temporary password.
         $uid = int_param('user_id');
         $alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
         $temp = '';

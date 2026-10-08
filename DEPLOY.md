@@ -129,6 +129,9 @@ sudo tee /etc/apache2/sites-available/setlo.conf <<'EOF'
     SetEnv DB_PASS CHANGE_ME
     SetEnv GEMINI_API_KEY YOUR_GEMINI_KEY
     SetEnv GOOGLE_CLIENT_ID YOUR_CLIENT_ID.apps.googleusercontent.com
+    SetEnv SMTP_HOST smtp.gmail.com
+    SetEnv SMTP_USER you@gmail.com
+    SetEnv SMTP_PASS YOUR_GMAIL_APP_PASSWORD
 </VirtualHost>
 EOF
 sudo chmod 640 /etc/apache2/sites-available/setlo.conf
@@ -220,6 +223,7 @@ Repeat step 5. The tar excludes `uploads/`, so users' photos are kept. Then run 
 |---|---|
 | "Receipt scanning isn't set up" banner | `GEMINI_API_KEY` is missing from the vhost (or from `config/local.php` on a local copy), or `php-curl` isn't installed. Run `sudo systemctl reload apache2` after edits. |
 | Camera opens but no outline appears around the receipt | OpenCV.js couldn't load from cdn.jsdelivr.net (offline, or blocked). Light and blur alerts still work; reload once online. |
+| "Forgot password?" says email isn't set up, or the code never arrives | `SMTP_USER` / `SMTP_PASS` are missing from the vhost (Gmail needs an App Password from myaccount.google.com/apppasswords, with 2-Step Verification on), or the server blocks outbound port 587. Run `php tools/test-mail.php you@example.com` to see the exact reason, and check the spam folder. |
 | "Continue with Google" says it isn't set up | `GOOGLE_CLIENT_ID` is missing from the vhost. |
 | Google popup shows "origin_mismatch", or the button doesn't appear | Add the exact site address under **Authorized JavaScript origins** of the OAuth client. |
 | "Photo is too large" / upload fails at about 2 MB | The PHP ini from step 3 is not loaded. Check with `php --ini` and the Apache `phpinfo()`. |

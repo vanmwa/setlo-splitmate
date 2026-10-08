@@ -5,7 +5,7 @@ CREATE DATABASE IF NOT EXISTS setlo CHARACTER SET utf8mb4 COLLATE utf8mb4_unicod
 USE setlo;
 
 SET FOREIGN_KEY_CHECKS = 0;
-DROP TABLE IF EXISTS game_players, game_sessions, user_achievements, user_group_members, user_groups, login_attempts, notifications, settlement_events, credits, settlement_payments, settlements, item_assignments, receipt_items, receipt_photos, receipts, bill_payments, bill_members, bills, users;
+DROP TABLE IF EXISTS game_players, game_sessions, user_achievements, user_group_members, user_groups, password_resets, login_attempts, notifications, settlement_events, credits, settlement_payments, settlements, item_assignments, receipt_items, receipt_photos, receipts, bill_payments, bill_members, bills, users;
 SET FOREIGN_KEY_CHECKS = 1;
 
 CREATE TABLE users (
@@ -257,6 +257,19 @@ CREATE TABLE login_attempts (
   ip            VARCHAR(45) NOT NULL,
   attempted_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX (email, ip, attempted_at)
+) ENGINE=InnoDB;
+
+-- "Forgot password?" codes emailed to users (see api/auth.php). Only a hash of the 6-digit code is stored.
+CREATE TABLE password_resets (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id     INT UNSIGNED NOT NULL,
+  code_hash   CHAR(64) NOT NULL,
+  expires_at  DATETIME NOT NULL,
+  attempts    TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  ip          VARCHAR(45) NOT NULL DEFAULT '',
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX (user_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE notifications (

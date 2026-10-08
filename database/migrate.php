@@ -184,6 +184,13 @@ $steps = [
     'ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar VARCHAR(120) NULL AFTER avatar_color',
     // Extra cash kept instead of giving change becomes an utang (the receiver owes it back)
     'ALTER TABLE bills ADD COLUMN IF NOT EXISTS change_payment_id INT UNSIGNED NULL AFTER loan_amount',
+    // "Forgot password?": a 6-digit code emailed to the user (only its hash is stored)
+    'CREATE TABLE IF NOT EXISTS password_resets (
+       id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id INT UNSIGNED NOT NULL, code_hash CHAR(64) NOT NULL,
+       expires_at DATETIME NOT NULL, attempts TINYINT UNSIGNED NOT NULL DEFAULT 0, ip VARCHAR(45) NOT NULL DEFAULT "",
+       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, INDEX (user_id)
+     ) ENGINE=InnoDB',
 ];
 foreach ($steps as $sql) {
     db()->exec($sql);

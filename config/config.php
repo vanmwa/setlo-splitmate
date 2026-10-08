@@ -61,5 +61,17 @@ return [
         'methods'    => ['gcash', 'paymaya', 'card'],
     ],
 
+    // Outgoing email (the "Forgot password?" code) over SMTP. Gmail: smtp.gmail.com, port 587, "tls", and an App Password
+    // (https://myaccount.google.com/apppasswords). Empty user/password = "Forgot password?" says email isn't set up.
+    'mail' => [
+        'host'      => $env('SMTP_HOST', 'smtp.gmail.com'),
+        'port'      => (int) $env('SMTP_PORT', '587'),
+        'secure'    => $env('SMTP_SECURE', 'tls'),   // tls = STARTTLS (587), ssl = implicit TLS (465)
+        'user'      => $env('SMTP_USER', ''),
+        'pass'      => $env('SMTP_PASS', ''),
+        'from'      => $env('MAIL_FROM', ''),        // defaults to SMTP_USER
+        'from_name' => $env('MAIL_FROM_NAME', 'Setlo'),
+    ],
+
     'timezone' => 'Asia/Manila',
 ];

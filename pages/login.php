@@ -49,7 +49,7 @@ require __DIR__ . '/../partials/auth-landing-top.php';
       <label class="flex cursor-pointer items-center gap-2 text-slate-600">
         <input v-model="remember" type="checkbox" class="h-4 w-4 rounded accent-brand-600" /> Remember me
       </label>
-      <button type="button" @click="forgot = true" class="font-semibold text-brand-700 hover:underline">Forgot password?</button>
+      <a :href="'forgot-password' + (email ? '?email=' + encodeURIComponent(email) : '')" class="font-semibold text-brand-700 hover:underline">Forgot password?</a>
     </div>
   </form>
 
@@ -60,19 +60,6 @@ require __DIR__ . '/../partials/auth-landing-top.php';
   <p class="mt-6 text-center text-[14px] text-slate-600">
     Don't have an account? <a href="register<?= $next ? '?next=' . h(urlencode($next)) : '' ?>" class="font-bold text-brand-700 hover:underline">Sign up</a>
   </p>
-
-  <!-- Forgot password -->
-  <div v-if="forgot" class="sheet-backdrop" @click.self="forgot = false">
-    <div class="sheet" role="dialog" aria-labelledby="forgot-title">
-      <div class="sheet-grip"></div>
-      <h3 id="forgot-title" class="text-[18px] font-extrabold text-ink">Forgot your password?</h3>
-      <p class="mt-2 text-[14px] leading-relaxed text-slate-600">
-        Ask the <b>app manager</b> to reset it. They'll give you a temporary password — log in with it, then set a new one on your <b>Profile</b> page.
-      </p>
-      <p class="mt-2 text-[13px] text-slate-500">Signed up with Google? Just use <b>Continue with Google</b> instead.</p>
-      <button @click="forgot = false" class="btn-pill btn-pill-primary mt-5">Got it</button>
-    </div>
-  </div>
 </div>
 
 <?php require __DIR__ . '/../partials/auth-landing-bottom.php'; ?>
@@ -83,7 +70,7 @@ const afterLogin = (r) => { location.href = NEXT && r.role !== 'admin' ? NEXT : 
 
 Setlo.mount({
   mixins: [Setlo.validation],
-  data: () => ({ email: '', password: '', showPw: false, remember: true, busy: false, error: '', forgot: false }),
+  data: () => ({ email: '', password: '', showPw: false, remember: true, busy: false, error: '' }),
   mounted() {
     SetloGoogle.mount(this.$refs.google, {
       clientId: GOOGLE_CLIENT_ID,
