@@ -1,6 +1,7 @@
 <?php
 require __DIR__ . '/../includes/bootstrap.php';
 $user = require_login();
+require_once __DIR__ . '/../includes/domain.php';
 $title = 'My Bills';
 $nav = 'bills';
 $back = 'dashboard.php';
@@ -105,12 +106,12 @@ require __DIR__ . '/../partials/head.php';
           <p v-if="form.guests.length" class="mt-1.5 text-[11.5px] text-slate-400">You'll mark guests' payments for them.</p>
         </div>
         <div>
-          <label class="field-label" for="payer">Who paid the restaurant?</label>
-          <select id="payer" v-model.number="form.payer_id" class="input-soft cursor-pointer">
-            <option :value="me">You</option>
-            <option v-for="m in form.members" :key="m.id" :value="m.id">{{ m.name }}</option>
-          </select>
-          <p class="mt-1.5 text-[12px] text-slate-400">Everyone else settles with this person.</p>
+          <label class="field-label">Who paid the restaurant?</label>
+          <payer-picker v-model="form.payer_ids" :people="payerOptions" :me="me"></payer-picker>
+          <p class="mt-1.5 text-[12px] text-slate-400">
+            {{ form.payer_ids.length > 1 ? 'You’ll enter how much each person paid once the receipt is scanned (or split it evenly).' : 'Everyone else settles with this person.' }}
+          </p>
+          <p v-if="form.guests.length" class="mt-1 text-[11.5px] text-slate-400">Guests can’t be payers — they have no account to confirm payments.</p>
         </div>
         <button class="btn-pill btn-pill-primary" :disabled="busy">{{ busy ? 'Creating…' : 'Create & Scan Receipt' }}</button>
       </div>
@@ -127,7 +128,8 @@ Setlo.mount({
     filters: ['all', 'active', 'settling', 'closed'], filter: 'all',
     // ?new=1 opens the Create Bill sheet in the very first paint (no pop-in on refresh)
     creating: new URLSearchParams(location.search).has('new'), search: '', results: [], timer: null,
-    form: { name: '', members: [], guests: [], payer_id: <?= (int) $user['id'] ?>, group_id: null },
+    meUser: <?= json_encode(public_user($user)) ?>,
+    form: { name: '', members: [], guests: [], payer_ids: [<?= (int) $user['id'] ?>], group_id: null },
     groups: [],
     guestName: '',
   }),
@@ -138,6 +140,8 @@ Setlo.mount({
       if (this.filter === 'active') return this.bills.filter((b) => b.status === 'active' || b.status === 'draft');
       return this.bills.filter((b) => b.status === this.filter);
     },
+    /** Everyone who can have paid: you first, then the members added so far (guests can't confirm payments). */
+    payerOptions() { return [this.meUser, ...this.form.members]; },
     shownTotal() { return this.shown.reduce((s, b) => s + b.total, 0); },
   },
   async mounted() {
@@ -163,12 +167,12 @@ Setlo.mount({
       if (this.form.group_id === g.id) {
         this.form.group_id = null;
         this.form.members = [];
-        this.form.payer_id = this.me;
+        this.form.payer_ids = [this.me];
         return;
       }
       this.form.group_id = g.id;
       this.form.members = g.members.filter((m) => m.id !== this.me);
-      if (!this.form.members.some((m) => m.id === this.form.payer_id)) this.form.payer_id = this.me;
+      this.keepPayers();
     },
     lookup() {
       clearTimeout(this.timer);
@@ -201,12 +205,18 @@ Setlo.mount({
     },
     removeMember(m) {
       this.form.members = this.form.members.filter((x) => x.id !== m.id);
-      if (this.form.payer_id === m.id) this.form.payer_id = this.me;
+      this.keepPayers();
+    },
+    /** Drop payers who are no longer in the bill; you pay if nobody is left. */
+    keepPayers() {
+      const ids = [this.me, ...this.form.members.map((m) => m.id)];
+      const kept = this.form.payer_ids.filter((id) => ids.includes(id));
+      this.form.payer_ids = kept.length ? kept : [this.me];
     },
     async create() {
       if (!this.validateAll(['name'])) return;
       const r = await Setlo.run(this, () => api.post('bills.php', {
-        action: 'create', name: this.form.name.trim(), payer_id: this.form.payer_id, member_ids: this.form.members.map((m) => m.id), guest_names: this.form.guests, group_id: this.form.group_id,
+        action: 'create', name: this.form.name.trim(), payer_ids: this.form.payer_ids, member_ids: this.form.members.map((m) => m.id), guest_names: this.form.guests, group_id: this.form.group_id,
       }));
       if (r) location.href = r.redirect;
     },

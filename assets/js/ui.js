@@ -593,6 +593,97 @@
     return via ? base + ' (' + via + ')' : base;
   }
 
+  /**
+   * Dropdown to pick who paid the restaurant (one person, or several with `multiple`).
+   * props: people ([{ id, name, first, initials, color, photo }]), modelValue (selected ids), me (your id), multiple.
+   * Emits update:modelValue. Closes on outside click / Esc / Tab, arrow keys move, Space/Enter toggles.
+   */
+  const PayerPicker = {
+    components: { Avatar },
+    props: {
+      people: { type: Array, required: true },
+      modelValue: { type: Array, required: true },
+      me: { type: Number, default: 0 },
+      multiple: { type: Boolean, default: true },
+    },
+    emits: ['update:modelValue'],
+    data: () => ({ open: false, active: 0, up: false, shake: false }),
+    computed: {
+      selected() { return this.people.filter((p) => this.modelValue.includes(p.id)); },
+      names() { return this.selected.map((p) => (p.id === this.me ? 'You' : p.first || p.name)); },
+      summary() {
+        const n = this.names;
+        return n.length <= 2 ? n.join(' & ') : n[0] + ', ' + n[1] + ' +' + (n.length - 2);
+      },
+    },
+    mounted() {
+      this._outside = (e) => { if (this.open && !this.$el.contains(e.target)) this.close(); };
+      document.addEventListener('pointerdown', this._outside);
+    },
+    beforeUnmount() { document.removeEventListener('pointerdown', this._outside); },
+    methods: {
+      isOn(id) { return this.modelValue.includes(id); },
+      openList() {
+        const r = this.$el.getBoundingClientRect();
+        this.up = window.innerHeight - r.bottom < 280 && r.top > 280;
+        this.active = Math.max(0, this.people.findIndex((p) => this.isOn(p.id)));
+        this.open = true;
+      },
+      close(focus) { this.open = false; if (focus) this.$refs.trigger.focus(); },
+      toggleOpen() { this.open ? this.close() : this.openList(); },
+      pick(id) {
+        if (!this.multiple) { this.$emit('update:modelValue', [id]); this.close(true); return; }
+        if (this.isOn(id)) {
+          if (this.modelValue.length === 1) {
+            this.shake = true;
+            setTimeout(() => { this.shake = false; }, 400);
+            toast('Someone has to pay the restaurant.', 'warn');
+            return;
+          }
+          this.$emit('update:modelValue', this.modelValue.filter((x) => x !== id));
+        } else {
+          // keep the people's own order so the first payer is stable
+          this.$emit('update:modelValue', this.people.filter((p) => p.id === id || this.isOn(p.id)).map((p) => p.id));
+        }
+      },
+      selectAll() { this.$emit('update:modelValue', this.people.map((p) => p.id)); },
+      onlyMe() { this.$emit('update:modelValue', [this.me || this.people[0].id]); },
+      onKey(e) {
+        if (!this.open) {
+          if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) { e.preventDefault(); this.openList(); }
+          return;
+        }
+        const n = this.people.length;
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(true); }
+        else if (e.key === 'Tab') this.close();
+        else if (e.key === 'ArrowDown') { e.preventDefault(); this.active = (this.active + 1) % n; }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); this.active = (this.active + n - 1) % n; }
+        else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.pick(this.people[this.active].id); }
+      },
+    },
+    template: `<div class="pp" :class="{ open, up }" @keydown="onKey">
+      <button ref="trigger" type="button" class="pp-trigger" :class="{ shake }" aria-haspopup="listbox" :aria-expanded="open" @click="toggleOpen">
+        <span class="pp-faces"><avatar v-for="p in selected.slice(0, 3)" :key="p.id" :user="p" :size="24"></avatar></span>
+        <span class="pp-summary">{{ summary }}</span>
+        <span v-if="multiple && selected.length > 1" class="pp-count">{{ selected.length }} paid</span>
+        <svg class="pp-chev" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div v-if="open" class="pp-panel" role="listbox" :aria-multiselectable="multiple">
+        <div v-if="multiple && people.length > 1" class="pp-tools">
+          <span>Tick everyone who paid</span>
+          <span><button type="button" @click="selectAll">All</button><button type="button" @click="onlyMe">Just me</button></span>
+        </div>
+        <div v-for="(p, i) in people" :key="p.id" class="pp-opt" :class="{ on: isOn(p.id), active: active === i }" role="option" :aria-selected="isOn(p.id)"
+             @click="pick(p.id)" @mouseenter="active = i">
+          <span class="pp-box" :class="{ radio: !multiple }"></span>
+          <avatar :user="p" :size="28"></avatar>
+          <span class="pp-name">{{ p.id === me ? 'You' : p.name }}</span>
+          <span v-if="p.id === me" class="pp-tag">Creator</span>
+        </div>
+      </div>
+    </div>`,
+  };
+
   const helpers = { peso, onlineVia, methodWithVia, pesoShort, timeAgo, fmtDate, fmtDateTime, fmtMonth, toast, receiptLabel, statusLabel: (s) => STATUS_LABELS[s] || s };
 
   /** Create and mount a page's Vue app with the shared components and helpers. */
@@ -600,6 +691,7 @@
     const app = createApp(options);
     app.component('avatar', Avatar);
     app.component('avatar-picker', AvatarPicker);
+    app.component('payer-picker', PayerPicker);
     app.component('rate-choice', RateChoice);
     app.component('status-pill', StatusPill);
     app.component('spinner', Spinner);

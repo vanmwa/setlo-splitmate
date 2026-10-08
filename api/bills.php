@@ -134,6 +134,7 @@ if (method() === 'GET') {
             // Who paid the restaurant and the proposed transfers (before settling starts).
             'payments'    => [
                 'multi'    => (bool) q('SELECT 1 FROM bill_payments WHERE bill_id = ? LIMIT 1', [$bill['id']])->fetchColumn(),
+                'payer_ids' => array_map('intval', q('SELECT user_id FROM bill_payments WHERE bill_id = ? ORDER BY amount DESC, user_id', [$bill['id']])->fetchAll(PDO::FETCH_COLUMN)) ?: [$bill['payer_id']],
                 'paid'     => array_map('pesos', $plan['paid']),
                 'total'    => pesos($plan['paid_total']),
                 'mismatch' => pesos($plan['mismatch']),
@@ -173,7 +174,8 @@ if ($action === 'create') {
     require_valid(valid_bill_name($name), 'name');
     $memberIds = array_unique(array_map('intval', (array) input('member_ids', [])));
     $memberIds = array_values(array_diff($memberIds, [$me['id']]));
-    $payerId = (int) input('payer_id', $me['id']);
+    // Who paid the restaurant: payer_ids (one or several); the older single payer_id still works.
+    $payerIds = array_map('intval', (array) input('payer_ids', [input('payer_id', $me['id'])]));
 
     if ($memberIds) {
         $in = implode(',', array_fill(0, count($memberIds), '?'));
@@ -181,9 +183,12 @@ if ($action === 'create') {
         $memberIds = array_map('intval', $valid);
     }
     $all = array_merge([$me['id']], $memberIds);
-    if (!in_array($payerId, $all, true)) {
-        $payerId = $me['id'];
+    // Real members only (guests can't confirm payments), in the order they were chosen; nobody valid = the creator.
+    $payerIds = array_values(array_unique(array_filter($payerIds, fn ($id) => in_array($id, $all, true))));
+    if (!$payerIds) {
+        $payerIds = [$me['id']];
     }
+    $payerId = in_array($me['id'], $payerIds, true) ? $me['id'] : $payerIds[0];
 
     $pdo = db();
     $pdo->beginTransaction();
@@ -193,6 +198,13 @@ if ($action === 'create') {
     }
     q('INSERT INTO bills (name, creator_id, payer_id, group_id) VALUES (?, ?, ?, ?)', [$name, $me['id'], $payerId, $groupId ?: null]);
     $billId = (int) $pdo->lastInsertId();
+    if (count($payerIds) > 1) {
+        // Several payers: record who now; how much each paid is entered once the receipt total is known
+        // (the bill can't start settling until those amounts add up to the total).
+        foreach ($payerIds as $uid) {
+            q('INSERT INTO bill_payments (bill_id, user_id, amount) VALUES (?, ?, 0)', [$billId, $uid]);
+        }
+    }
     foreach ($all as $uid) {
         q('INSERT INTO bill_members (bill_id, user_id) VALUES (?, ?)', [$billId, $uid]);
         if ($uid !== $me['id']) {

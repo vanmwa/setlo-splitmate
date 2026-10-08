@@ -24,7 +24,7 @@ require __DIR__ . '/../partials/head.php';
         <p class="truncate text-[17px] font-extrabold">{{ p.name }}</p>
         <p class="truncate text-[12px] text-brand-50/90">{{ p.email }}</p>
         <button @click="picking = true" class="mt-0.5 text-[12px] font-bold text-white underline decoration-white/40 underline-offset-2">Change picture</button>
-        <status-badge v-if="featuredBadge" :badge="featuredBadge" class="mt-1.5 !bg-white/95"></status-badge>
+        <div v-if="featuredBadge" class="mt-1.5 flex"><status-badge :badge="featuredBadge" class="!bg-white/95"></status-badge></div>
       </div>
     </div>
   </div>

@@ -101,12 +101,13 @@ require __DIR__ . '/../partials/head.php';
               <button :class="{ on: multiPay }" @click="startMultiPay">Several</button>
             </div>
           </div>
-          <select v-if="!multiPay" :value="bill.payer_id" @change="setPayer($event.target.value)" class="input-soft mt-3 cursor-pointer" aria-label="Payer">
-            <option v-for="m in realMembers" :key="m.id" :value="m.id">{{ m.id === me ? 'You' : m.name }} paid {{ peso(d.total) }}</option>
-          </select>
+          <div v-if="!multiPay" class="mt-3">
+            <payer-picker :people="realMembers" :model-value="[bill.payer_id]" :me="me" :multiple="false" @update:model-value="setPayer($event[0])"></payer-picker>
+            <p class="mt-1.5 text-[12px] text-slate-400">{{ payer.id === me ? 'You' : payer.name }} paid {{ peso(d.total) }}. Everyone else settles with this person.</p>
+          </div>
           <template v-else>
             <div class="mt-3 space-y-2">
-              <label v-for="m in realMembers" :key="m.id" class="flex items-center gap-3">
+              <label v-for="m in payRows" :key="m.id" class="flex items-center gap-3">
                 <avatar :user="m" :size="28"></avatar>
                 <span class="flex-1 text-[13px] font-semibold">{{ m.id === me ? 'You' : m.name }}</span>
                 <span class="text-slate-400">₱</span>
@@ -116,6 +117,7 @@ require __DIR__ . '/../partials/head.php';
             <p class="mt-2 text-[12px] font-semibold" :class="payDraftOk ? 'text-brand-600' : 'text-rose-500'">
               {{ peso(payDraftTotal) }} of {{ peso(d.total) }} entered{{ payDraftOk ? ' ✓' : ' — ' + peso(Math.abs(d.total - payDraftTotal)) + (payDraftTotal < d.total ? ' left' : ' too much') }}
             </p>
+            <button type="button" @click="splitEvenly" class="mt-2 text-[12px] font-bold text-brand-700 hover:underline">Split evenly between {{ evenIds.length }} {{ evenIds.length === 1 ? 'person' : 'people' }}</button>
             <button @click="savePayments" class="btn btn-primary btn-sm mt-3 w-full" :disabled="busy">Save payments</button>
           </template>
         </div>
@@ -253,6 +255,13 @@ Setlo.mount({
       return qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
     },
     realMembers() { return this.d.members.filter((m) => !m.is_guest); },
+    /** Who paid, as named when the bill was created (or everyone, if it was never several). */
+    evenIds() { return this.d.payments.multi ? this.d.payments.payer_ids : this.realMembers.map((m) => m.id); },
+    /** The people who paid first, then everyone else, for the amount rows. */
+    payRows() {
+      const first = this.d.payments.multi ? this.d.payments.payer_ids : [];
+      return [...this.realMembers].sort((a, b) => (first.includes(b.id) - first.includes(a.id)));
+    },
     payDraftTotal() { return Math.round(Object.values(this.payDraft).reduce((s, v) => s + (parseFloat(v) || 0), 0) * 100) / 100; },
     payDraftOk() { return Math.abs(this.payDraftTotal - this.d.total) < 0.005; },
     canEdit() { return this.d.me.is_creator && !this.bill.locked; },
@@ -315,6 +324,14 @@ Setlo.mount({
     startMultiPay() {
       this.multiPay = true;
       this.payDraft = Object.fromEntries(this.realMembers.map((m) => [m.id, this.d.payments.multi && this.d.payments.paid[m.id] ? this.d.payments.paid[m.id].toFixed(2) : '']));
+    },
+    /** Fill the amounts with an equal split of the total (any odd centavos go to the first people). */
+    splitEvenly() {
+      const ids = this.evenIds;
+      const cents = Math.round(this.d.total * 100);
+      const base = Math.floor(cents / ids.length);
+      const extra = cents - base * ids.length;
+      this.payDraft = Object.fromEntries(this.realMembers.map((m) => [m.id, ids.includes(m.id) ? ((base + (ids.indexOf(m.id) < extra ? 1 : 0)) / 100).toFixed(2) : '']));
     },
     async savePayments() {
       if (!this.validateAll(this.realMembers.map((m) => 'pay' + m.id))) return;
