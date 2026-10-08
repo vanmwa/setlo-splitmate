@@ -58,11 +58,49 @@ if (method() === 'GET') {
 
         case 'bill':
             $bill = bill_for(int_param('id'), $admin);
+            require_once __DIR__ . '/../includes/payments.php';
+            $members = bill_members($bill['id']);
+            $items = bill_items($bill['id']);
+            $calc = compute_shares($bill, $members, $items);
+            $settlementRows = q(
+                'SELECT s.*, ' . SETTLEMENT_ONLINE_STARTED . ', b.kind AS bill_kind, fu.full_name AS from_name, fu.avatar_color AS from_color, fu.role AS from_role,
+                   tu.full_name AS to_name, tu.avatar_color AS to_color, tu.payment_method AS to_method, tu.payment_account AS to_account, tu.pay_code AS to_pay_code
+                 FROM settlements s JOIN bills b ON b.id = s.bill_id JOIN users fu ON fu.id = s.from_user_id JOIN users tu ON tu.id = s.to_user_id
+                 WHERE s.bill_id = ? ORDER BY s.id',
+                [$bill['id']]
+            )->fetchAll();
+            $events = q(
+                'SELECT e.id, e.settlement_id, e.event, e.note, e.created_at, u.full_name AS actor
+                 FROM settlement_events e JOIN settlements s ON s.id = e.settlement_id LEFT JOIN users u ON u.id = e.actor_id
+                 WHERE s.bill_id = ? ORDER BY e.created_at DESC, e.id DESC LIMIT 100',
+                [$bill['id']]
+            )->fetchAll();
+            $receipts = q('SELECT id, title, store_name, receipt_no, total FROM receipts WHERE bill_id = ? ORDER BY position, id', [$bill['id']])->fetchAll();
             json_ok([
-                'bill'        => bill_card($bill + ['creator_name' => q('SELECT full_name FROM users WHERE id = ?', [$bill['creator_id']])->fetchColumn()]),
-                'members'     => bill_members($bill['id']),
-                'items'       => bill_items($bill['id']),
-                'settlements' => bill_settlements($bill['id']),
+                'bill'        => bill_card($bill + ['creator_name' => q('SELECT full_name FROM users WHERE id = ?', [$bill['creator_id']])->fetchColumn()])
+                    + ['kind' => $bill['kind'] ?? 'bill', 'split_mode' => $bill['split_mode'] ?? 'items', 'payer_id' => $bill['payer_id']],
+                'members'     => $members,
+                'items'       => $items,
+                'settlements' => settlement_rows_with_parts($settlementRows),
+                'events'      => array_map(fn ($e) => [
+                    'id' => (int) $e['id'], 'settlement_id' => (int) $e['settlement_id'], 'event' => $e['event'],
+                    'note' => $e['note'], 'actor' => $e['actor'], 'created_at' => $e['created_at'],
+                ], $events),
+                'receipts'    => array_map(fn ($r) => [
+                    'id' => (int) $r['id'], 'title' => $r['title'], 'store' => $r['store_name'], 'no' => $r['receipt_no'],
+                    'total' => $r['total'] === null ? null : (float) $r['total'],
+                ], $receipts),
+                'totals'      => [
+                    'subtotal'     => pesos($calc['subtotal']),
+                    'extras'       => pesos($calc['extras']),
+                    'tax'          => $calc['tax_included'] ? 0.0 : (float) $bill['tax'],
+                    'tax_included' => $calc['tax_included'],
+                    'service'      => (float) $bill['service_charge'],
+                    'discount'     => pesos($calc['discount']),
+                    'total'        => pesos($calc['total']),
+                    'unassigned'   => $calc['unassigned_count'],
+                ],
+                'shares'      => array_map(fn ($c) => pesos((int) $c), $calc['shares']),
             ]);
 
         case 'disputes':
