@@ -522,12 +522,31 @@ function bill_payments(array $bill, int $totalCents): array
 function settlement_plan(array $bill, array $members, array $calc): array
 {
     $paid = bill_payments($bill, $calc['total']);
+    $paidTotal = array_sum($paid);
+    // The amounts are what was handed to the cashier (amount tendered), so they may exceed the bill total.
+    // The change comes back to whoever handed over the most (the main payer), who is out of pocket only the net.
+    $change = max(0, $paidTotal - $calc['total']);
+    $net = $paid;
+    if ($change > 0) {
+        $holder = isset($paid[(int) $bill['payer_id']]) && $paid[(int) $bill['payer_id']] >= $change ? (int) $bill['payer_id'] : array_search(max($paid), $paid, true);
+        $net[$holder] = max(0, $net[$holder] - $change);
+        // Change bigger than the holder's cash (can't happen with a sane tender): spread the rest down the others
+        $left = $change - ($paid[$holder] - $net[$holder]);
+        foreach ($net as $uid => $c) {
+            if ($left <= 0) {
+                break;
+            }
+            $take = min($c, $left);
+            $net[$uid] -= $take;
+            $left -= $take;
+        }
+    }
     $balances = [];
     foreach ($members as $m) {
-        $balances[$m['id']] = ($paid[$m['id']] ?? 0) - ($calc['shares'][$m['id']] ?? 0);
+        $balances[$m['id']] = ($net[$m['id']] ?? 0) - ($calc['shares'][$m['id']] ?? 0);
     }
-    $paidTotal = array_sum($paid);
-    $mismatch = $paidTotal - $calc['total'];
+    // Only a shortfall is a problem: the payments must cover the total.
+    $mismatch = min(0, $paidTotal - $calc['total']);
 
     $transfers = [];
     if ($mismatch === 0 && $calc['unassigned_count'] === 0 && in_array($calc['percent_total'] ?? null, [null, 10000], true)) {
@@ -551,7 +570,7 @@ function settlement_plan(array $bill, array $members, array $calc): array
             $bal[$creditor] -= $amount;
         }
     }
-    return ['transfers' => $transfers, 'balances' => $balances, 'paid' => $paid, 'paid_total' => $paidTotal, 'mismatch' => $mismatch];
+    return ['transfers' => $transfers, 'balances' => $balances, 'paid' => $paid, 'paid_total' => $paidTotal, 'change' => $change, 'mismatch' => $mismatch];
 }
 
 /**
@@ -576,7 +595,7 @@ function start_settling(array $bill, array $actor, ?float $interestRate = null):
     }
     $plan = settlement_plan($bill, $members, $calc);
     if ($plan['mismatch'] !== 0) {
-        fail('The payments entered (' . peso_str($plan['paid_total']) . ') don’t add up to the bill total ('
+        fail('The payments entered (' . peso_str($plan['paid_total']) . ') don’t cover the bill total ('
             . peso_str($calc['total']) . '). Fix “Who paid the restaurant” first.', 422);
     }
     $names = array_column($members, 'first', 'id');
