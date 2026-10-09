@@ -115,8 +115,9 @@ require __DIR__ . '/../partials/head.php';
               </label>
             </div>
             <p class="mt-2 text-[12px] font-semibold" :class="payDraftOk ? 'text-brand-600' : 'text-rose-500'">
-              {{ peso(payDraftTotal) }} of {{ peso(d.total) }} entered{{ payDraftOk ? ' ✓' : ' — ' + peso(Math.abs(d.total - payDraftTotal)) + (payDraftTotal < d.total ? ' left' : ' too much') }}
+              {{ peso(payDraftTotal) }} handed to the cashier of {{ peso(d.total) }} due{{ payDraftOk ? ' ✓' : ' — ' + peso(d.total - payDraftTotal) + ' short' }}
             </p>
+            <p v-if="payDraftOk && payDraftTotal > d.total + 0.005" class="mt-0.5 text-[12px] text-slate-400">{{ peso(payDraftTotal - d.total) }} change goes back to the biggest payer.</p>
             <button type="button" @click="splitEvenly" class="mt-2 text-[12px] font-bold text-brand-700 hover:underline">Split evenly between {{ evenIds.length }} {{ evenIds.length === 1 ? 'person' : 'people' }}</button>
             <button @click="savePayments" class="btn btn-primary btn-sm mt-3 w-full" :disabled="busy">Save payments</button>
           </template>
@@ -130,7 +131,7 @@ require __DIR__ . '/../partials/head.php';
         <p class="text-sm font-bold text-ink">Proposed transfers</p>
         <p class="mt-0.5 text-[12px] text-slate-400">Final once the creator confirms the split. Uses the fewest payments possible.</p>
         <p v-if="d.unassigned_count" class="mt-3 text-[12px] font-semibold text-rose-500">Assign every item to see the plan.</p>
-        <p v-else-if="d.payments.mismatch" class="mt-3 text-[12px] font-semibold text-rose-500">Payments entered ({{ peso(d.payments.total) }}) don't match the bill total ({{ peso(d.total) }}).</p>
+        <p v-else-if="d.payments.mismatch" class="mt-3 text-[12px] font-semibold text-rose-500">Payments entered ({{ peso(d.payments.total) }}) don't cover the bill total ({{ peso(d.total) }}).</p>
         <div v-else class="mt-3 space-y-2">
           <div v-for="(t, i) in d.plan" :key="i" class="flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2">
             <avatar :user="memberMap[t.from]" :size="28"></avatar>
@@ -263,7 +264,8 @@ Setlo.mount({
       return [...this.realMembers].sort((a, b) => (first.includes(b.id) - first.includes(a.id)));
     },
     payDraftTotal() { return Math.round(Object.values(this.payDraft).reduce((s, v) => s + (parseFloat(v) || 0), 0) * 100) / 100; },
-    payDraftOk() { return Math.abs(this.payDraftTotal - this.d.total) < 0.005; },
+    /** The amounts are the cash handed to the cashier (amount tendered): they only have to cover the total. */
+    payDraftOk() { return this.payDraftTotal >= this.d.total - 0.005; },
     canEdit() { return this.d.me.is_creator && !this.bill.locked; },
     /** Another member's open debt that I could pay for them (guests' debts are the creator's own to pay). */
     canCover() {
@@ -335,7 +337,7 @@ Setlo.mount({
     },
     async savePayments() {
       if (!this.validateAll(this.realMembers.map((m) => 'pay' + m.id))) return;
-      if (!this.payDraftOk) { Setlo.toast('The amounts must add up to ' + this.peso(this.d.total) + '.'); return; }
+      if (!this.payDraftOk) { Setlo.toast('The amounts must cover at least ' + this.peso(this.d.total) + '.'); return; }
       const payments = Object.fromEntries(Object.entries(this.payDraft).filter(([, v]) => parseFloat(v) > 0).map(([k, v]) => [k, parseFloat(v)]));
       await Setlo.run(this, async () => {
         await api.post('bills.php', { action: 'set_payments', bill_id: this.billId, payments });

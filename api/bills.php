@@ -138,6 +138,7 @@ if (method() === 'GET') {
                 'paid'     => array_map('pesos', $plan['paid']),
                 'total'    => pesos($plan['paid_total']),
                 'mismatch' => pesos($plan['mismatch']),
+                'change'   => pesos($plan['change']),
             ],
             'balances'    => array_map('pesos', $plan['balances']),
             'plan'        => array_map(fn ($t) => ['from' => $t[0], 'to' => $t[1], 'amount' => pesos($t[2])], $plan['transfers']),
@@ -188,7 +189,21 @@ if ($action === 'create') {
     if (!$payerIds) {
         $payerIds = [$me['id']];
     }
+    // With several payers each may state how much they put in (0 = fill in later). One payer needs no amount.
+    $contrib = [];
+    if (count($payerIds) > 1) {
+        $raw = input('payments', []);
+        foreach ($payerIds as $uid) {
+            $amount = is_array($raw) && is_numeric($raw[$uid] ?? null) ? round((float) $raw[$uid], 2) : 0.0;
+            $contrib[$uid] = $amount > 0 && $amount <= 1000000 ? $amount : 0.0;
+        }
+    }
     $payerId = in_array($me['id'], $payerIds, true) ? $me['id'] : $payerIds[0];
+    if ($contrib && max($contrib) > 0) {
+        // The biggest contributor is the bill's main payer (same rule as "set_payments").
+        arsort($contrib);
+        $payerId = array_key_first($contrib);
+    }
 
     $pdo = db();
     $pdo->beginTransaction();
@@ -199,10 +214,10 @@ if ($action === 'create') {
     q('INSERT INTO bills (name, creator_id, payer_id, group_id) VALUES (?, ?, ?, ?)', [$name, $me['id'], $payerId, $groupId ?: null]);
     $billId = (int) $pdo->lastInsertId();
     if (count($payerIds) > 1) {
-        // Several payers: record who now; how much each paid is entered once the receipt total is known
-        // (the bill can't start settling until those amounts add up to the total).
+        // Several payers: record who paid and what they put in (blank = still to fill in). The bill can't start
+        // settling until these add up to the receipt total.
         foreach ($payerIds as $uid) {
-            q('INSERT INTO bill_payments (bill_id, user_id, amount) VALUES (?, ?, 0)', [$billId, $uid]);
+            q('INSERT INTO bill_payments (bill_id, user_id, amount) VALUES (?, ?, ?)', [$billId, $uid, $contrib[$uid]]);
         }
     }
     foreach ($all as $uid) {

@@ -407,7 +407,7 @@ Setlo.mount({
       });
       if (!r) return;
       if (r.payments.mismatch) {
-        Setlo.toast('Payments don’t add up to the bill total — fix “Who paid” on Bill Detail.');
+        Setlo.toast('Payments don’t cover the bill total — fix “Who paid” on Bill Detail.');
         return;
       }
       this.plan = r.plan;

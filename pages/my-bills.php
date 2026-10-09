@@ -108,9 +108,22 @@ require __DIR__ . '/../partials/head.php';
         <div>
           <label class="field-label">Who paid the restaurant?</label>
           <payer-picker v-model="form.payer_ids" :people="payerOptions" :me="me"></payer-picker>
-          <p class="mt-1.5 text-[12px] text-slate-400">
-            {{ form.payer_ids.length > 1 ? 'You’ll enter how much each person paid once the receipt is scanned (or split it evenly).' : 'Everyone else settles with this person.' }}
-          </p>
+          <p v-if="form.payer_ids.length < 2" class="mt-1.5 text-[12px] text-slate-400">Everyone else settles with this person. The amount comes from the scanned receipt.</p>
+          <div v-else class="mt-3 rounded-2xl border border-slate-200 p-3">
+            <p class="text-[12.5px] font-bold text-ink">How much did each person put in?</p>
+            <div class="mt-2 space-y-2">
+              <label v-for="p in payerRows" :key="p.id" class="flex items-center gap-3">
+                <avatar :user="p" :size="28"></avatar>
+                <span class="min-w-0 flex-1 truncate text-[13px] font-semibold">{{ p.id === me ? 'You' : p.name }}</span>
+                <span class="text-slate-400">₱</span>
+                <input :data-field="'pay' + p.id" :value="form.pay[p.id]" @input="form.pay[p.id] = filterMoney($event.target.value); $event.target.value = form.pay[p.id]; touch('pay' + p.id)" inputmode="decimal" placeholder="0.00" autocomplete="off"
+                       class="row-in !h-9 w-28 text-right" :class="{ 'is-invalid': err('pay' + p.id) }" :aria-label="'Amount paid by ' + p.name" />
+              </label>
+            </div>
+            <p v-for="p in payerRows" :key="'e' + p.id" v-show="err('pay' + p.id)" class="field-error">{{ p.first }}: {{ err('pay' + p.id) }}</p>
+            <p class="mt-2 text-[12px] font-semibold" :class="contributed ? 'text-brand-600' : 'text-slate-400'">{{ peso(contributed) }} put in so far</p>
+            <p class="mt-1 text-[11.5px] leading-snug text-slate-400">Leave a name blank to fill it in later. After the scan these are the cash handed to the cashier and must cover the receipt total (change goes back to the biggest payer); you can adjust them on the bill. Who ordered what is set separately, then settling works out who owes whom.</p>
+          </div>
           <p v-if="form.guests.length" class="mt-1 text-[11.5px] text-slate-400">Guests can’t be payers — they have no account to confirm payments.</p>
         </div>
         <button class="btn-pill btn-pill-primary" :disabled="busy">{{ busy ? 'Creating…' : 'Create & Scan Receipt' }}</button>
@@ -129,7 +142,7 @@ Setlo.mount({
     // ?new=1 opens the Create Bill sheet in the very first paint (no pop-in on refresh)
     creating: new URLSearchParams(location.search).has('new'), search: '', results: [], timer: null,
     meUser: <?= json_encode(public_user($user)) ?>,
-    form: { name: '', members: [], guests: [], payer_ids: [<?= (int) $user['id'] ?>], group_id: null },
+    form: { name: '', members: [], guests: [], payer_ids: [<?= (int) $user['id'] ?>], pay: {}, group_id: null },
     groups: [],
     guestName: '',
   }),
@@ -142,6 +155,9 @@ Setlo.mount({
     },
     /** Everyone who can have paid: you first, then the members added so far (guests can't confirm payments). */
     payerOptions() { return [this.meUser, ...this.form.members]; },
+    /** The ticked payers, in the dropdown's order (one amount row each when there are several). */
+    payerRows() { return this.payerOptions.filter((p) => this.form.payer_ids.includes(p.id)); },
+    contributed() { return Math.round(this.payerRows.reduce((s, p) => s + (parseFloat(this.form.pay[p.id]) || 0), 0) * 100) / 100; },
     shownTotal() { return this.shown.reduce((s, b) => s + b.total, 0); },
   },
   async mounted() {
@@ -191,7 +207,10 @@ Setlo.mount({
       this.results = [];
     },
     validators() {
+      const pay = {};
+      if (this.form.payer_ids.length > 1) for (const p of this.payerRows) pay['pay' + p.id] = V.money(this.form.pay[p.id], { label: 'Amount' });
       return {
+        ...pay,
         name: V.billName(this.form.name),
         guest: V.name(this.guestName, 'Guest name') || (this.form.guests.some((g) => g.toLowerCase() === this.guestName.trim().toLowerCase()) ? 'You already added this guest.' : ''),
       };
@@ -212,11 +231,13 @@ Setlo.mount({
       const ids = [this.me, ...this.form.members.map((m) => m.id)];
       const kept = this.form.payer_ids.filter((id) => ids.includes(id));
       this.form.payer_ids = kept.length ? kept : [this.me];
+      for (const id of Object.keys(this.form.pay)) if (!this.form.payer_ids.includes(Number(id))) delete this.form.pay[id];
     },
     async create() {
-      if (!this.validateAll(['name'])) return;
+      const multi = this.form.payer_ids.length > 1;
+      if (!this.validateAll(['name', ...(multi ? this.payerRows.map((p) => 'pay' + p.id) : [])])) return;
       const r = await Setlo.run(this, () => api.post('bills.php', {
-        action: 'create', name: this.form.name.trim(), payer_ids: this.form.payer_ids, member_ids: this.form.members.map((m) => m.id), guest_names: this.form.guests, group_id: this.form.group_id,
+        action: 'create', name: this.form.name.trim(), payer_ids: this.form.payer_ids, payments: multi ? this.form.pay : {}, member_ids: this.form.members.map((m) => m.id), guest_names: this.form.guests, group_id: this.form.group_id,
       }));
       if (r) location.href = r.redirect;
     },
