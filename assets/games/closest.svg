@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f5d0fe"/><stop offset="1" stop-color="#fed7aa"/></linearGradient>
+  </defs>
+  <rect width="320" height="200" fill="url(#bg)"/>
+  <circle cx="30" cy="170" r="5" fill="#fde047"/><circle cx="296" cy="28" r="5" fill="#fff" opacity=".8"/><circle cx="160" cy="20" r="3" fill="#d946ef" opacity=".5"/>
+  <!-- the target line: don't go over -->
+  <path d="M18 44h284" stroke="#e11d48" stroke-width="3" stroke-dasharray="8 6"/>
+  <rect x="226" y="30" width="78" height="22" rx="11" fill="#e11d48"/>
+  <text x="265" y="45.5" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#fff">TARGET</text>
+  <!-- bullseye -->
+  <g transform="translate(110 116)">
+    <circle r="58" fill="#d946ef"/>
+    <circle r="46" fill="#fff"/>
+    <circle r="34" fill="#f97316"/>
+    <circle r="22" fill="#fff"/>
+    <circle r="11" fill="#a855f7"/>
+    <!-- arrow -->
+    <g transform="rotate(-35)">
+      <path d="M0 0h78" stroke="#475569" stroke-width="4" stroke-linecap="round"/>
+      <path d="M0 0l12-6v12z" fill="#475569"/>
+      <path d="M66 0l14-10h10l-12 10 12 10h-10z" fill="#facc15"/>
+    </g>
+  </g>
+  <!-- basket -->
+  <g transform="translate(232 120)">
+    <path d="M-30 -8c4-26 56-26 60 0" fill="none" stroke="#a855f7" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="-14" cy="-12" r="10" fill="#f97316"/><circle cx="6" cy="-14" r="9" fill="#22c55e"/><rect x="12" y="-26" width="12" height="20" rx="3" fill="#facc15"/>
+    <path d="M-40 -8h80l-10 52h-60z" fill="#d946ef"/>
+    <g stroke="#f5d0fe" stroke-width="3"><path d="M-36 8h72"/><path d="M-33 24h66"/><path d="M-14 -8l2 52"/><path d="M14 -8l-2 52"/></g>
+  </g>
+</svg>

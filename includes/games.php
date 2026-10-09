@@ -9,9 +9,9 @@
 declare(strict_types=1);
 
 const GAMES = [
+    'roulette' => ['emoji' => '🎡', 'title' => 'Roulette',                   'description' => 'Players drop out one by one. The last one standing pays it all.'],
     'race'     => ['emoji' => '🏁', 'title' => 'Receipt Race',               'description' => 'Same items for everyone. The fastest correct total pays nothing.'],
     'closest'  => ['emoji' => '🎯', 'title' => 'Closest Without Going Over', 'description' => 'Build a basket closest to the target without going over. The closest pays nothing.'],
-    'roulette' => ['emoji' => '🎡', 'title' => 'Roulette',                   'description' => 'Players drop out one by one. The last one standing pays it all.'],
     'cards'    => ['emoji' => '🃏', 'title' => 'Mystery Card',               'description' => 'Everyone picks a face-down card. One of them says “You Pay”.'],
 ];
 

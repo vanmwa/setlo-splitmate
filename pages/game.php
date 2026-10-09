@@ -35,23 +35,40 @@ require __DIR__ . '/../partials/head.php';
     <!-- ===== Game Options (creator, before a game) ===== -->
     <template v-if="view === 'options'">
       <p class="section-label">PICK A GAME</p>
-      <button v-for="(gm, key) in games" :key="key" @click="pick.game = key" class="game-option" :class="{ on: pick.game === key }" :aria-pressed="pick.game === key">
-        <span class="game-emoji">{{ gm.emoji }}</span>
-        <span class="min-w-0 flex-1">
-          <span class="block text-[15px] font-extrabold text-ink">{{ gm.title }}</span>
-          <span class="mt-0.5 block text-[12.5px] leading-snug text-slate-500">{{ gm.description }}</span>
-          <span v-if="key === 'race'" class="mt-1 block text-[11px] font-bold text-fuchsia-600">🧮 Winner: Human Calculator</span>
-          <span v-if="key === 'closest'" class="mt-1 block text-[11px] font-bold text-fuchsia-600">🎯 Winner: Bullseye</span>
-          <span v-if="key === 'roulette'" class="mt-1 block text-[11px] font-bold text-fuchsia-600">🌟 Picked: Main Character</span>
-        </span>
-      </button>
-
-      <div v-if="pick.game === 'cards'" class="tile p-3.5">
-        <p class="mb-2 text-[11.5px] font-bold text-slate-500">{{ Math.max(8, members.length) }} face-down cards — all 7 below plus {{ Math.max(8, members.length) - 7 }} extra · one card each, starting from an equal split</p>
-        <div class="space-y-1">
-          <p v-for="(c, key) in cards" :key="key" class="text-[12px] text-slate-600"><span class="font-bold text-ink">{{ c.emoji }} {{ c.title }}</span> — {{ cardText(c.description) }}</p>
-        </div>
+      <!-- swipe to pick: the slide in the middle is the chosen game -->
+      <div ref="track" @scroll.passive="onTrackScroll" class="game-carousel -mx-5 px-5">
+        <button v-for="(gm, key, i) in games" :key="key" :data-game="key" @click="selectGame(key)" class="game-slide" :class="{ on: pick.game === key }" :aria-pressed="pick.game === key">
+          <img :src="gameArt + key + '.svg'" alt="" :loading="i ? 'lazy' : 'eager'" />
+          <span class="block p-4">
+            <span class="block text-[16px] font-extrabold text-ink">{{ gm.emoji }} {{ gm.title }}</span>
+            <span class="mt-1 block text-[12.5px] leading-snug text-slate-500">{{ gm.description }}</span>
+            <span v-if="key === 'race'" class="mt-1.5 block text-[11px] font-bold text-fuchsia-600">🧮 Winner: Human Calculator</span>
+            <span v-if="key === 'closest'" class="mt-1.5 block text-[11px] font-bold text-fuchsia-600">🎯 Winner: Bullseye</span>
+            <span v-if="key === 'roulette'" class="mt-1.5 block text-[11px] font-bold text-fuchsia-600">🌟 Picked: Main Character</span>
+          </span>
+        </button>
       </div>
+      <div class="flex items-center justify-center gap-3">
+        <button @click="stepGame(-1)" class="carousel-arrow" :disabled="gameIndex <= 0" aria-label="Previous game">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+        </button>
+        <div class="flex items-center gap-1.5">
+          <button v-for="(gm, key) in games" :key="key" @click="selectGame(key)" class="carousel-dot" :class="{ on: pick.game === key }" :aria-label="'Show ' + gm.title" :aria-current="pick.game === key"></button>
+        </div>
+        <button @click="stepGame(1)" class="carousel-arrow" :disabled="gameIndex >= gameKeys.length - 1" aria-label="Next game">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+
+      <!-- slides in when Mystery Card is picked; the card lines are dealt in one by one -->
+      <transition name="deck">
+        <div v-if="pick.game === 'cards'" class="tile p-3.5">
+          <p class="mb-2 text-[11.5px] font-bold text-slate-500">{{ Math.max(8, members.length) }} face-down cards — all 7 below plus {{ Math.max(8, members.length) - 7 }} extra · one card each, starting from an equal split</p>
+          <div class="space-y-1">
+            <p v-for="(c, key, i) in cards" :key="key" class="deck-line text-[12px] text-slate-600" :style="{ '--i': i }"><span class="font-bold text-ink">{{ c.emoji }} {{ c.title }}</span> — {{ cardText(c.description) }}</p>
+          </div>
+        </div>
+      </transition>
 
       <p class="section-label !mt-5">HOW DO YOU PLAY?</p>
       <div class="seg seg-light" role="radiogroup" aria-label="How to play">
@@ -372,7 +389,7 @@ Setlo.mount({
   data: () => ({
     billId: <?= $billId ?>, loading: true, busy: false,
     bill: null, me: { id: <?= (int) $user['id'] ?>, is_creator: false }, members: [], games: {}, cards: {}, game: null, shares: null,
-    pick: { game: 'race', mode: 'screen' },
+    pick: { game: 'roulette', mode: 'screen' }, gameArt: <?= json_encode(url('assets/games/')) ?>, scrollFrame: null,
     offset: 0, now: Date.now(), poller: null, ticker: null, hot: null,
     answerInput: '', basket: {}, revealed: false, replaying: false, lastNudge: 0, reveal: null,
   }),
@@ -398,6 +415,8 @@ Setlo.mount({
       if (this.myPlayer && todo(this.myPlayer)) return this.myPlayer;
       return this.game.is_host ? this.game.players.find((p) => p.user.is_guest && todo(p)) || null : null;
     },
+    gameKeys() { return Object.keys(this.games); },
+    gameIndex() { return this.gameKeys.indexOf(this.pick.game); },
     turnLimit() { return Math.round((this.game.turn_limit_ms || 90000) / 1000); },
     validAnswer() { const v = parseFloat(this.answerInput); return v >= 0 && this.answerInput.trim() !== '' && v <= 1000000; },
     basketCount() { return Object.values(this.basket).reduce((a, b) => a + b, 0); },
@@ -438,10 +457,13 @@ Setlo.mount({
   },
   watch: {
     'actor.user.id'() { this.revealed = false; this.answerInput = ''; this.basket = {}; },
+    // The carousel is (re)drawn: start it on the current pick, e.g. after "Play another game".
+    view(v) { if (v === 'options') this.$nextTick(() => this.scrollToGame(this.pick.game, false)); },
   },
   async mounted() {
     await this.load();
     this.loading = false;
+    if (this.view === 'options') this.$nextTick(() => this.scrollToGame(this.pick.game, false));
     this.ticker = setInterval(this.tick, 250);
     this.schedule();
     document.addEventListener('visibilitychange', this.schedule);
@@ -523,6 +545,36 @@ Setlo.mount({
         case 'swap': return `${h} swaps shares with ${t}.`;
       }
       return '';
+    },
+    selectGame(key) {
+      this.pick.game = key;
+      this.scrollToGame(key, true);
+    },
+    stepGame(d) {
+      const key = this.gameKeys[this.gameIndex + d];
+      if (key) this.selectGame(key);
+    },
+    scrollToGame(key, smooth) {
+      const track = this.$refs.track, slide = track && track.querySelector(`[data-game="${key}"]`);
+      if (!slide) return;
+      const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      track.scrollTo({ left: slide.offsetLeft - (track.clientWidth - slide.offsetWidth) / 2, behavior: smooth && !calm ? 'smooth' : 'auto' });
+    },
+    /** Swiping picks the game: whichever slide sits closest to the middle of the track. */
+    onTrackScroll() {
+      if (this.scrollFrame) return;
+      this.scrollFrame = requestAnimationFrame(() => {
+        this.scrollFrame = null;
+        const track = this.$refs.track;
+        if (!track) return;
+        const mid = track.scrollLeft + track.clientWidth / 2;
+        let best = null, dist = Infinity;
+        for (const s of track.children) {
+          const d = Math.abs(s.offsetLeft + s.offsetWidth / 2 - mid);
+          if (d < dist) { dist = d; best = s.dataset.game; }
+        }
+        if (best) this.pick.game = best;
+      });
     },
     async start() {
       const r = await this.post('start', { game: this.pick.game, mode: this.pick.mode });

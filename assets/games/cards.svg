@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f5d0fe"/><stop offset="1" stop-color="#fed7aa"/></linearGradient>
+    <linearGradient id="back" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d946ef"/><stop offset="1" stop-color="#fb923c"/></linearGradient>
+    <pattern id="dots" width="10" height="10" patternUnits="userSpaceOnUse"><circle cx="5" cy="5" r="1.6" fill="#fff" opacity=".45"/></pattern>
+  </defs>
+  <rect width="320" height="200" fill="url(#bg)"/>
+  <circle cx="36" cy="40" r="5" fill="#fde047"/><circle cx="292" cy="34" r="4" fill="#d946ef" opacity=".5"/><circle cx="282" cy="168" r="6" fill="#fde047" opacity=".8"/><circle cx="44" cy="164" r="4" fill="#fff"/>
+  <!-- face-down fan -->
+  <g transform="translate(160 186)">
+    <g transform="rotate(-34)"><rect x="-32" y="-150" width="64" height="92" rx="10" fill="url(#back)" stroke="#fff" stroke-width="4"/><rect x="-24" y="-142" width="48" height="76" rx="6" fill="url(#dots)"/></g>
+    <g transform="rotate(-17)"><rect x="-32" y="-150" width="64" height="92" rx="10" fill="url(#back)" stroke="#fff" stroke-width="4"/><rect x="-24" y="-142" width="48" height="76" rx="6" fill="url(#dots)"/></g>
+    <g transform="rotate(17)"><rect x="-32" y="-150" width="64" height="92" rx="10" fill="url(#back)" stroke="#fff" stroke-width="4"/><rect x="-24" y="-142" width="48" height="76" rx="6" fill="url(#dots)"/></g>
+    <g transform="rotate(34)"><rect x="-32" y="-150" width="64" height="92" rx="10" fill="url(#back)" stroke="#fff" stroke-width="4"/><rect x="-24" y="-142" width="48" height="76" rx="6" fill="url(#dots)"/></g>
+  </g>
+  <!-- the flipped card -->
+  <g transform="translate(160 92) rotate(3)">
+    <rect x="-40" y="-60" width="80" height="112" rx="12" fill="#fff" stroke="#f0abfc" stroke-width="4"/>
+    <text y="-14" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="900" fill="#d946ef">?!</text>
+    <text y="14" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="900" fill="#e11d48">YOU</text>
+    <text y="30" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="900" fill="#e11d48">PAY</text>
+  </g>
+  <!-- sparkles -->
+  <g fill="#facc15"><path d="M222 50l4 10 10 4-10 4-4 10-4-10-10-4 10-4z"/><path d="M96 38l3 7 7 3-7 3-3 7-3-7-7-3 7-3z"/></g>
+</svg>
