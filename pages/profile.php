@@ -90,6 +90,42 @@ require __DIR__ . '/../partials/head.php';
       </template>
     </div>
 
+    <!-- Appearance: saved in this browser only (assets/js/theme.js) -->
+    <div class="tile p-4">
+      <p class="text-[15px] font-extrabold text-ink">Appearance</p>
+      <p class="mt-0.5 text-[12px] text-slate-400">Pick a color and a light or dark look. Saved on this device.</p>
+      <p class="section-label mt-4">COLOR</p>
+      <div class="flex flex-wrap gap-3" role="radiogroup" aria-label="Color theme">
+        <button v-for="(a, key) in accents" :key="key" type="button" role="radio" :aria-checked="theme.accent === key" @click="setTheme({ accent: key })"
+                class="flex flex-col items-center gap-1.5 text-[11px] font-bold" :class="theme.accent === key ? 'text-ink' : 'text-slate-400'">
+          <span class="flex h-11 w-11 items-center justify-center rounded-full text-white transition" :style="{ background: a.color, boxShadow: theme.accent === key ? '0 0 0 3px rgb(var(--surface)), 0 0 0 5px ' + a.color : 'none' }">
+            <svg v-if="theme.accent === key" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          </span>
+          {{ a.label }}
+        </button>
+        <button type="button" role="radio" :aria-checked="theme.accent === 'custom'" @click="setTheme({ accent: 'custom' })"
+                class="flex flex-col items-center gap-1.5 text-[11px] font-bold" :class="theme.accent === 'custom' ? 'text-ink' : 'text-slate-400'">
+          <span class="flex h-11 w-11 items-center justify-center rounded-full text-white transition"
+                :style="{ background: theme.accent === 'custom' ? theme.custom : 'conic-gradient(#ef4444, #f59e0b, #22c55e, #06b6d4, #6366f1, #d946ef, #ef4444)', boxShadow: theme.accent === 'custom' ? '0 0 0 3px rgb(var(--surface)), 0 0 0 5px ' + theme.custom : 'none' }">
+            <svg v-if="theme.accent === 'custom'" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          </span>
+          Custom
+        </button>
+      </div>
+      <div v-if="theme.accent === 'custom'" class="mt-3 rounded-2xl bg-slate-50 p-3">
+        <div class="flex items-center gap-3">
+          <input type="color" :value="theme.custom" @input="setTheme({ custom: $event.target.value }); hexDraft = theme.custom" class="h-11 w-14 shrink-0 cursor-pointer rounded-xl border-0 bg-transparent p-0" aria-label="Pick a color" />
+          <input v-model="hexDraft" @input="onHex" maxlength="7" spellcheck="false" autocapitalize="off" class="row-in w-28 font-mono uppercase" :class="{ 'is-invalid': hexDraft && !hexOk }" aria-label="Color hex code" placeholder="#7C3AED" />
+          <button type="button" class="ml-auto text-[12px] font-bold text-slate-400 hover:text-ink" @click="setTheme({ accent: 'green' })">Reset to green</button>
+        </div>
+        <p v-if="customAdjusted" class="mt-2 text-[11.5px] text-slate-500">Made a little darker so buttons and text stay easy to read.</p>
+      </div>
+      <p class="section-label mt-5">MODE</p>
+      <div class="seg seg-light" role="radiogroup" aria-label="Light or dark mode">
+        <button v-for="m in modes" :key="m.key" type="button" role="radio" :aria-checked="theme.mode === m.key" :class="{ on: theme.mode === m.key }" @click="setTheme({ mode: m.key })">{{ m.label }}</button>
+      </div>
+    </div>
+
     <!-- Payment details -->
     <form class="tile space-y-4 p-4" @submit.prevent="saveProfile" novalidate>
       <div>
@@ -125,7 +161,7 @@ require __DIR__ . '/../partials/head.php';
       <p class="text-[15px] font-extrabold text-ink">Your Pay-me QR</p>
       <p class="mt-0.5 text-[12px] text-slate-400">Made for your account automatically. Friends scan it to open your pay page with your {{ p.payment_method }} details and what they owe you.</p>
       <div class="mt-4 flex flex-col items-center gap-4 sm:flex-row">
-        <div class="h-40 w-40 shrink-0 rounded-2xl border border-slate-200 bg-white p-2" v-html="qr" role="img" aria-label="Your Pay-me QR code"></div>
+        <div class="h-40 w-40 shrink-0 rounded-2xl border border-slate-200 bg-white p-2 keep-white" v-html="qr" role="img" aria-label="Your Pay-me QR code"></div>
         <div class="w-full flex-1 space-y-2">
           <button @click="downloadQr" class="btn btn-primary w-full">Download QR</button>
           <button @click="shareLink" class="btn btn-outline w-full">{{ canShare ? 'Share link' : 'Copy link' }}</button>
@@ -183,10 +219,14 @@ Setlo.mount({
   data: () => ({
     loading: true, busy: false, busyAch: false, p: null, money: null, ach: null, canShare: !!navigator.share,
     presets: [], picking: false,
+    theme: SetloTheme.get(), accents: SetloTheme.ACCENTS, hexDraft: SetloTheme.get().custom,
+    modes: [{ key: 'light', label: '☀️ Light' }, { key: 'dark', label: '🌙 Dark' }, { key: 'system', label: '🖥 System' }],
     f: { full_name: '', payment_method: 'GCash', payment_account: '' },
     pw: { current: '', new: '', confirm: '' }, serverErrors: {},
   }),
   computed: {
+    hexOk() { return SetloTheme.isHex(this.hexDraft); },
+    customAdjusted() { return this.theme.accent === 'custom' && SetloTheme.scale(this.theme.custom).adjusted; },
     isGcash() { return this.f.payment_method === 'GCash'; },
     accountLabel() {
       if (this.isGcash) return 'GCash number';
@@ -216,6 +256,14 @@ Setlo.mount({
       if (r) { this.ach = r; Setlo.toast(r.featured ? 'Title set' : 'Title removed', 'ok'); }
     },
     showPerson(id) { Setlo.showPerson(id); },
+    setTheme(patch) { this.theme = SetloTheme.set(patch); },
+    /** Typing a hex code: applies once it is a full #rrggbb (the "#" is added if left out). */
+    onHex() {
+      let v = this.hexDraft.trim();
+      if (v && v[0] !== '#') v = '#' + v;
+      this.hexDraft = v;
+      if (SetloTheme.isHex(v)) this.setTheme({ custom: v });
+    },
     /** A new picture was saved: show it, but keep any unsaved edits in the details form. */
     onPicture(profile) {
       this.p = profile;

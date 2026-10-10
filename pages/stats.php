@@ -89,14 +89,14 @@ require __DIR__ . '/../partials/head.php';
 
       <div v-else class="relative mt-4" @mouseleave="hover = null">
         <!-- Tooltip -->
-        <div v-if="hover !== null" class="pointer-events-none absolute -top-2 z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-lg bg-ink px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg"
+        <div v-if="hover !== null" class="pointer-events-none absolute -top-2 z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-lg bg-night px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg"
              :style="{ left: ((hover + 0.5) / s.months.length * 100) + '%' }">
           {{ monthLong(s.months[hover].month) }} · {{ peso(s.months[hover].amount) }}
         </div>
         <div class="flex h-40 items-end gap-2 border-b border-slate-200" role="img" :aria-label="'Monthly spending: ' + s.months.map((m) => monthShort(m.month) + ' ' + peso(m.amount)).join(', ')">
           <button v-for="(m, i) in s.months" :key="m.month" class="group relative flex h-full flex-1 items-end focus:outline-none"
                   @mouseenter="hover = i" @focus="hover = i" @blur="hover = null" :aria-label="monthLong(m.month) + ' ' + peso(m.amount)">
-            <span class="w-full rounded-t-[4px] bg-[#0d9488] transition-opacity group-hover:opacity-80 group-focus-visible:ring-2 group-focus-visible:ring-brand-300"
+            <span class="w-full rounded-t-[4px] bg-brand-600 transition-opacity group-hover:opacity-80 group-focus-visible:ring-2 group-focus-visible:ring-brand-300"
                   :style="{ height: m.amount > 0 ? Math.max(2, m.amount / maxMonth * 100) + '%' : '0' }"></span>
           </button>
         </div>
@@ -117,7 +117,7 @@ require __DIR__ . '/../partials/head.php';
             <span class="shrink-0 font-bold text-ink">{{ peso(row.amount) }}</span>
           </div>
           <div class="mt-1 h-2 rounded-full bg-slate-100">
-            <div class="h-2 rounded-full bg-[#0d9488]" :style="{ width: Math.max(2, row.amount / s[list.key][0].amount * 100) + '%' }"></div>
+            <div class="h-2 rounded-full bg-brand-600" :style="{ width: Math.max(2, row.amount / s[list.key][0].amount * 100) + '%' }"></div>
           </div>
         </div>
       </div>

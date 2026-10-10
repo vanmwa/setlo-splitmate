@@ -56,7 +56,7 @@
 
     ctx.fillStyle = '#f1f5f5'; ctx.fillRect(0, 0, W, height);
     const g = ctx.createLinearGradient(0, 0, W, 190);
-    g.addColorStop(0, '#1fbfae'); g.addColorStop(1, '#0f8a7e');
+    g.addColorStop(0, window.SetloTheme ? SetloTheme.color(500) : '#1fbfae'); g.addColorStop(1, window.SetloTheme ? SetloTheme.color(700) : '#0f8a7e');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, 190);
     text(ctx, 'setlo', PAD, 42, { size: 24, weight: 800, color: '#fff' });
     text(ctx, 'PAYMENT RECEIPT', W - PAD, 42, { size: 15, weight: 800, color: 'rgba(255,255,255,.85)', align: 'right' });
@@ -101,7 +101,7 @@
       // The title row leaves room for the ✕, so it never sits on the receipt image.
       html: `<p class="mb-3 pr-10 text-left text-[15px] font-extrabold leading-8 text-ink">Receipt ${global.Setlo.escapeHtml(r.no)}</p>
              <img src="${url}" alt="Receipt ${r.no} for ${global.Setlo.escapeHtml(peso(r.amount))}" style="width:100%;border-radius:16px" />`,
-      showConfirmButton: true, confirmButtonText: 'Save image', confirmButtonColor: '#0d9488',
+      showConfirmButton: true, confirmButtonText: 'Save image', confirmButtonColor: window.SetloTheme ? SetloTheme.color(600) : '#0d9488',
       showDenyButton: canShare, denyButtonText: 'Share', denyButtonColor: '#64748b',
       showCloseButton: true, padding: '1rem', customClass: { popup: 'setlo-swal' },
     });

@@ -82,7 +82,7 @@ require __DIR__ . '/../partials/head.php';
   </div>
 
   <div class="sticky bottom-[65px] z-20 px-4 pb-3 lg:bottom-4 lg:px-0 lg:pb-0">
-    <div class="flex items-center justify-between rounded-[20px] bg-ink py-2.5 pl-5 pr-2.5 shadow-xl shadow-slate-900/20">
+    <div class="flex items-center justify-between rounded-[20px] bg-night py-2.5 pl-5 pr-2.5 shadow-xl shadow-slate-900/20">
       <div>
         <p class="text-[11px] font-medium text-slate-400">Your share</p>
         <p class="text-[21px] font-extrabold leading-tight tracking-tight text-white">{{ peso(d.shares[me] || 0) }}</p>

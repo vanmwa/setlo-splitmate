@@ -285,7 +285,7 @@ require __DIR__ . '/../partials/head.php';
     </form>
   </div>
 
-  <div v-if="viewer" class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-ink/80 p-6" @click="viewer = null">
+  <div v-if="viewer" class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-night/80 p-6" @click="viewer = null">
     <p class="text-sm font-bold text-white">{{ viewer.title }}</p>
     <img :src="viewer.src" :alt="viewer.title" class="max-h-[75vh] max-w-full rounded-2xl bg-white shadow-2xl" />
     <p class="text-xs text-white/60">Tap anywhere to close</p>

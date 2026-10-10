@@ -47,7 +47,7 @@
   }
 
   function avatar(ctx, m, cx, cy, r) {
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fillStyle = m.color || '#0d9488'; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fillStyle = m.color || (window.SetloTheme ? SetloTheme.color(600) : '#0d9488'); ctx.fill();
     text(ctx, m.initials, cx, cy + 1, { size: r * 0.72, weight: 800, color: '#fff', align: 'center' });
   }
 
@@ -64,7 +64,7 @@
     // Background + header band
     ctx.fillStyle = '#f1f5f5'; ctx.fillRect(0, 0, W, height);
     const g = ctx.createLinearGradient(0, 0, W, 200);
-    g.addColorStop(0, '#1fbfae'); g.addColorStop(1, '#0f8a7e');
+    g.addColorStop(0, window.SetloTheme ? SetloTheme.color(500) : '#1fbfae'); g.addColorStop(1, window.SetloTheme ? SetloTheme.color(700) : '#0f8a7e');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, 200);
     text(ctx, 'setlo', PAD, 46, { size: 26, weight: 800, color: '#fff' });
     text(ctx, data.date, W - PAD, 46, { size: 18, weight: 600, color: 'rgba(255,255,255,.85)', align: 'right' });
@@ -86,7 +86,7 @@
         const m = row.m;
         avatar(ctx, m, PAD + 26, row.y + 16, 20);
         text(ctx, m.name + (m.is_guest ? ' (guest)' : ''), PAD + 60, row.y + (m.paid > 0 ? 8 : 16), { size: 21, weight: 700, max: 380 });
-        if (m.paid > 0) text(ctx, 'paid ' + peso(m.paid), PAD + 60, row.y + 32, { size: 15, weight: 600, color: '#0f766e' });
+        if (m.paid > 0) text(ctx, 'paid ' + peso(m.paid), PAD + 60, row.y + 32, { size: 15, weight: 600, color: window.SetloTheme ? SetloTheme.color(700) : '#0f766e' });
         text(ctx, peso(m.share), W - PAD - 6, row.y + 16, { size: 22, weight: 800, align: 'right' });
       } else if (row.type === 'transfer') {
         const t = row.t;

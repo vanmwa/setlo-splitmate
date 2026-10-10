@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: ['class', 'html.dark'],
   content: [
     './*.php',
     './pages/**/*.php',
@@ -13,21 +14,13 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: '#f0fdfa',
-          100: '#ccfbf1',
-          200: '#99f6e4',
-          300: '#5eead4',
-          400: '#2dd4bf',
-          500: '#14b8a6',
-          600: '#0d9488',
-          700: '#0f766e',
-          800: '#115e59',
-          900: '#134e4a',
-        },
+        brand: Object.fromEntries([50, 100, 200, 300, 400, 500, 600, 700, 800, 900].map((n) => [n, `rgb(var(--brand-${n}) / <alpha-value>)`])),
         accent: { 500: '#22c55e', 600: '#16a34a' },
-        ink: '#0f172a',
-        canvas: '#f1f5f5',
+        ink: 'rgb(var(--ink) / <alpha-value>)',
+        night: '#0f172a',
+        surface: 'rgb(var(--surface) / <alpha-value>)',
+        slate: Object.fromEntries([50, 100, 200, 300, 400, 500, 600, 700, 800, 900].map((n) => [n, `rgb(var(--slate-${n}) / <alpha-value>)`])),
+        canvas: 'rgb(var(--canvas) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['"Plus Jakarta Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],

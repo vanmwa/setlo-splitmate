@@ -121,7 +121,7 @@ require __DIR__ . '/../partials/head.php';
       <div class="mt-4 flex flex-wrap justify-center gap-2.5">
         <div v-for="(q, i) in queue" :key="q.key" class="relative">
           <img :src="q.url" :alt="'Photo ' + (i + 1)" class="h-20 w-16 rounded-lg object-cover shadow" />
-          <span class="absolute bottom-1 left-1 rounded bg-ink/70 px-1 text-[10px] font-bold text-white">{{ i + 1 }}</span>
+          <span class="absolute bottom-1 left-1 rounded bg-night/70 px-1 text-[10px] font-bold text-white">{{ i + 1 }}</span>
           <button @click="unqueue(i)" class="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-slate-500 shadow" :aria-label="'Remove photo ' + (i + 1)">✕</button>
         </div>
       </div>

@@ -157,7 +157,7 @@ require __DIR__ . '/../partials/head.php';
 
   <?php require __DIR__ . '/../partials/nav.php'; ?>
 
-  <div v-if="photos" class="fixed inset-0 z-50 flex flex-col items-center gap-3 overflow-y-auto bg-ink/70 p-6" @click.self="photos = null">
+  <div v-if="photos" class="fixed inset-0 z-50 flex flex-col items-center gap-3 overflow-y-auto bg-night/70 p-6" @click.self="photos = null">
     <img v-for="src in photos" :key="src" :src="src" alt="Receipt photo" class="max-h-[85vh] max-w-full rounded-2xl bg-white shadow-2xl" @click="photos = null" />
   </div>
 </div>

@@ -10,7 +10,7 @@ $links = [
 ?>
 <div class="flex min-h-screen bg-slate-50">
   <div class="nav-backdrop admin-backdrop" data-nav-close></div>
-  <aside class="admin-aside hidden w-60 shrink-0 flex-col bg-ink text-slate-300 md:flex" aria-label="Admin menu">
+  <aside class="admin-aside hidden w-60 shrink-0 flex-col bg-night text-slate-300 md:flex" aria-label="Admin menu">
     <div class="admin-brand flex items-center gap-2.5 border-b border-white/10 px-5 py-5">
       <img src="<?= h(url('assets/setlo_logo.png')) ?>" alt="" class="h-9 w-9 shrink-0 rounded-lg object-cover" />
       <div class="nav-label">

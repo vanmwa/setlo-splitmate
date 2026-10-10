@@ -57,7 +57,7 @@ require __DIR__ . '/../partials/head.php';
         </div>
       </div>
     </template>
-    <div v-if="proof" class="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-6" @click="proof = null">
+    <div v-if="proof" class="fixed inset-0 z-50 flex items-center justify-center bg-night/80 p-6" @click="proof = null">
       <img :src="'<?= h(url('api/settlements.php')) ?>?payment_proof=' + proof" alt="Proof of payment" class="max-h-[80vh] max-w-full rounded-2xl bg-white shadow-2xl" />
     </div>
 

@@ -33,9 +33,8 @@
   };
 
   // ---------- SweetAlert2 dialogs & toasts (loaded in partials/head.php) ----------
-  const BRAND = '#0d9488';
   const swal = (opts) => global.Swal.fire({
-    confirmButtonColor: BRAND, cancelButtonColor: '#94a3b8', reverseButtons: true, buttonsStyling: true,
+    confirmButtonColor: global.SetloTheme ? global.SetloTheme.color(600) : '#0d9488', cancelButtonColor: '#94a3b8', reverseButtons: true, buttonsStyling: true,
     customClass: { popup: 'setlo-swal' }, ...opts,
   });
   const Toast = global.Swal ? global.Swal.mixin({
@@ -115,7 +114,7 @@
     ctx.fillStyle = '#0f172a';
     for (let r = 0; r < n; r++) for (let col = 0; col < n; col++) if (q.isDark(r, col)) ctx.fillRect(pad + col * cell, pad + r * cell, cell, cell);
     if (caption) {
-      ctx.fillStyle = '#0f766e';
+      ctx.fillStyle = global.SetloTheme ? global.SetloTheme.color(700) : '#0f766e';
       ctx.font = '700 26px "Plus Jakarta Sans", system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(caption, size / 2, size + 34);
@@ -128,7 +127,7 @@
     const acct = person.payment_account ? `${person.payment_method} · ${person.payment_account}` : person.payment_method;
     return swal({
       title: `Pay ${escapeHtml(person.name.split(' ')[0])}`,
-      html: `<div class="mx-auto h-56 w-56 rounded-2xl border border-slate-200 bg-white p-2">${qrSvg(payLink(person.pay_code))}</div>
+      html: `<div class="mx-auto h-56 w-56 rounded-2xl border border-slate-200 bg-white p-2 keep-white">${qrSvg(payLink(person.pay_code))}</div>
              <p class="mt-3 text-[14px] font-bold text-slate-800">${escapeHtml(acct || '')}</p>
              <p class="mt-1 text-[12px] text-slate-500">Scan to open their Setlo pay page, then send the money in ${escapeHtml(person.payment_method)}.</p>`,
       showCancelButton: !!person.payment_account, confirmButtonText: 'Close', cancelButtonText: 'Copy number',
