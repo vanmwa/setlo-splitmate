@@ -39,10 +39,9 @@ function gemini_setup_problem(): ?string
 
 /**
  * Send prompt parts to Gemini and return the decoded JSON reply, shaped by $schema.
- * $maxAttempts limits how many models are tried (0 = the whole list, twice); quick checks use 2 so they never hang.
  * @throws GeminiException with a message that is safe to show to the user
  */
-function gemini_json(array $parts, array $schema, int $maxAttempts = 0): array
+function gemini_json(array $parts, array $schema): array
 {
     if (!gemini_available()) {
         throw new GeminiException('Receipt scanning is not set up on this server (missing Gemini API key).');
@@ -60,9 +59,6 @@ function gemini_json(array $parts, array $schema, int $maxAttempts = 0): array
     // once more after a short pause (busy spells often clear within seconds), within an overall time budget.
     $models = array_values(array_unique(array_merge([(string) config('gemini.model')], (array) config('gemini.fallback_models'))));
     $attempts = array_merge($models, $models);
-    if ($maxAttempts > 0) {
-        $attempts = array_slice($attempts, 0, $maxAttempts);
-    }
     $deadline = time() + GEMINI_TIME_BUDGET;
     $answered = false; // any attempt got an HTTP reply, so the network itself is fine
     foreach ($attempts as $i => $m) {

@@ -11,16 +11,6 @@ $back = $adding ? 'review-items.php?bill=' . $billId : 'my-bills.php';
 $headExtra = ['assets/js/docscan-core.js', 'assets/js/docscan.js'];
 require __DIR__ . '/../partials/head.php';
 ?>
-<style>
-  /* "No receipt detected" card (own classes: the Tailwind build can't be re-run here) */
-  .sr-card-photo { display: block; width: 6.5rem; height: 8.5rem; margin: .25rem auto 0; border-radius: .9rem; object-fit: cover; box-shadow: 0 10px 24px -10px rgb(15 23 42 / .5); }
-  .sr-badge { display: flex; width: 3rem; height: 3rem; margin: -1.4rem auto 0; position: relative; align-items: center; justify-content: center; border-radius: 999px; background: #fef3c7; color: #b45309; box-shadow: 0 0 0 4px #fff; }
-  .sr-link { font-size: .8rem; font-weight: 700; color: #64748b; }
-  .sr-link:hover { text-decoration: underline; }
-  .sr-card { animation: sr-pop .18s ease-out; }
-  @keyframes sr-pop { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
-  @media (prefers-reduced-motion: reduce) { .sr-card { animation: none; } }
-</style>
 <div id="app" class="device device-narrow" v-cloak>
 
   <div class="app-hero px-5 pb-5 pt-8">
@@ -81,7 +71,7 @@ require __DIR__ . '/../partials/head.php';
         </div>
       </div>
 
-      <div class="vf-line" :class="{ run: state === 'scanning' || state === 'checking' }"></div>
+      <div class="vf-line" :class="{ run: state === 'scanning' }"></div>
       <div class="absolute inset-x-0 bottom-4 flex justify-center gap-1.5">
         <span class="vf-chip">☀ Good light</span><span class="vf-chip">▭ Flat surface</span><span class="vf-chip">✓ Full receipt</span>
       </div>
@@ -148,11 +138,6 @@ require __DIR__ . '/../partials/head.php';
       <button @click="clearQueue" class="mt-3 text-[12px] font-bold text-slate-400">Start over</button>
     </div>
 
-    <div v-else-if="state === 'checking'" class="text-center" role="status" aria-live="polite">
-      <p class="mt-5 text-[16px] font-extrabold text-ink">Checking your photo…</p>
-      <p class="mt-1 text-[13px] text-slate-500">Making sure it’s a receipt</p>
-    </div>
-
     <div v-else-if="state === 'scanning'" class="text-center">
       <p class="mt-5 text-[16px] font-extrabold text-ink">{{ step.n > 1 ? 'Reading photo ' + step.i + ' of ' + step.n + '…' : 'Reading your receipt…' }}</p>
       <p class="mt-1 text-[13px] text-slate-500">Extracting item names and prices</p>
@@ -168,32 +153,12 @@ require __DIR__ . '/../partials/head.php';
     </div>
 
     <div v-else-if="state === 'failed'" class="text-center">
-      <p class="mt-5 text-[16px] font-extrabold text-ink">{{ failTitle }}</p>
+      <p class="mt-5 text-[16px] font-extrabold text-ink">Couldn't read this receipt</p>
       <p class="mt-1 text-[13px] text-slate-500">{{ failMessage }}</p>
       <div class="mt-5 grid grid-cols-2 gap-3">
         <button @click="clearQueue" class="btn-pill btn-pill-outline">Try another photo</button>
         <a :href="'review-items.php?bill=' + billId" class="btn-pill btn-pill-primary">Enter manually</a>
       </div>
-    </div>
-  </div>
-
-  <!-- The shot isn't a receipt: say so right away, with a way forward -->
-  <div v-if="notReceipt" class="sheet-backdrop" @click.self="dismissCard">
-    <div class="sheet sr-card text-center" role="alertdialog" aria-modal="true" aria-labelledby="sr-title" aria-describedby="sr-text">
-      <div class="sheet-grip"></div>
-      <img :src="notReceipt.url" alt="The photo you just took" class="sr-card-photo" />
-      <span class="sr-badge" aria-hidden="true">
-        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v5m0 3.5v.01M10.3 3.9L2.4 17.6A2 2 0 004.1 20.6h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
-      </span>
-      <h3 id="sr-title" class="mt-3 text-[18px] font-extrabold text-ink">No receipt detected</h3>
-      <p id="sr-text" class="mt-1.5 text-[13.5px] leading-relaxed text-slate-600">
-        <template v-if="notReceipt.what">This looks like <b>{{ notReceipt.what }}</b>, not a receipt.</template>
-        <template v-else>This doesn’t look like a receipt.</template>
-        Retake it with the whole receipt in the frame, flat and well lit.
-      </p>
-      <button ref="retakeBtn" @click="retakeFromCard" class="btn-pill btn-pill-primary mt-5 w-full">Retake</button>
-      <button @click="useAnyway" class="btn-pill btn-pill-outline mt-2.5 w-full">Use this photo anyway</button>
-      <button @click="dismissCard" class="sr-link mt-3">Cancel</button>
     </div>
   </div>
 
@@ -208,9 +173,7 @@ Setlo.mount({
   data: () => ({
     billId: <?= $billId ?>, ocrReady: <?= gemini_available() ? 'true' : 'false' ?>, ocrProblem: <?= json_encode((string) gemini_setup_problem(), JSON_HEX_TAG | JSON_UNESCAPED_UNICODE) ?>, me: <?= (int) $user['id'] ?>,
     bill: null, bills: [], loading: true, busy: false,
-    state: 'capture', preview: null, progress: 0, failMessage: '', failTitle: 'Couldn’t read this receipt',
-    // A camera shot that doesn't look like a receipt, while the "No receipt detected" card is open: { file, url, what }.
-    notReceipt: null,
+    state: 'capture', preview: null, progress: 0, failMessage: '',
     // Several receipts per bill: add to the bill's receipts, or replace them (the first scan).
     receiptCount: 0, addMode: <?= $adding ? 'true' : 'false' ?>,
     // Photos waiting to be scanned ({ key, file, url }), and whether they are sections of one long receipt.
@@ -242,7 +205,6 @@ Setlo.mount({
     queueFull() { return this.queue.length >= this.maxPhotos; },
   },
   async mounted() {
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.notReceipt) this.dismissCard(); });
     if (!this.billId) {
       await Setlo.load(this, 'bills.php', null, (r) => {
         this.bills = r.bills.filter((b) => b.link.startsWith('scan-receipt') || b.link.startsWith('assign-items'));
@@ -384,66 +346,8 @@ Setlo.mount({
         canvas.height = v.videoHeight;
         canvas.getContext('2d').drawImage(v, 0, 0);
       }
-      // Outline detection was running and found no receipt in view: a hint (not proof) that this isn't one.
-      const noOutline = !!scan && this.guide.outline === 'on' && !scan.quad;
       this.stopCamera();
-      canvas.toBlob((blob) => this.checkThenQueue(new File([blob], 'receipt-' + (this.queue.length + 1) + '.jpg', { type: 'image/jpeg' }), canvas, noOutline), 'image/jpeg', 0.9);
-    },
-    /**
-     * Is a fresh camera shot a receipt at all? The server asks Gemini about a small copy (~1-3 s) and its answer wins.
-     * With no answer (no API key, busy, offline, slower than 8 s) the camera's outline hint decides: no outline found
-     * = the card, otherwise the photo goes to the queue. Anything flagged opens the "No receipt detected" card.
-     */
-    async checkThenQueue(file, canvas, noOutline) {
-      const url = URL.createObjectURL(file);
-      let verdict = null;
-      if (this.ocrReady) {
-        this.preview = url;
-        this.state = 'checking';
-        try {
-          verdict = await Promise.race([this.askIfReceipt(canvas), new Promise((resolve) => setTimeout(() => resolve(null), 8000))]);
-        } catch (e) { /* the check is a courtesy: with no answer the outline hint decides */ }
-      }
-      if (verdict ? verdict.is_receipt === false : noOutline) {
-        this.state = this.queue.length ? 'queue' : 'capture';
-        this.preview = this.queue.length ? this.queue[this.queue.length - 1].url : null;
-        this.notReceipt = { file, url, what: (verdict && verdict.what) || '' };
-        this.$nextTick(() => this.$refs.retakeBtn && this.$refs.retakeBtn.focus());
-        return;
-      }
-      URL.revokeObjectURL(url);
-      this.enqueue(file);
-    },
-    async askIfReceipt(canvas) {
-      const k = Math.min(1, 640 / Math.max(canvas.width, canvas.height));
-      const small = document.createElement('canvas');
-      small.width = Math.round(canvas.width * k);
-      small.height = Math.round(canvas.height * k);
-      small.getContext('2d').drawImage(canvas, 0, 0, small.width, small.height);
-      const blob = await new Promise((resolve) => small.toBlob(resolve, 'image/jpeg', 0.7));
-      if (!blob) return null;
-      const fd = new FormData();
-      fd.append('action', 'check');
-      fd.append('bill_id', this.billId);
-      fd.append('image', blob, 'check.jpg');
-      const r = await api.post('receipts.php', fd);
-      return r.checked ? r : null;
-    },
-    /** Throw the shot away and open the camera again. */
-    retakeFromCard() {
-      this.dismissCard();
-      this.openCamera();
-    },
-    useAnyway() {
-      const { file, url } = this.notReceipt;
-      URL.revokeObjectURL(url);
-      this.notReceipt = null;
-      this.enqueue(file);
-    },
-    dismissCard() {
-      if (!this.notReceipt) return;
-      URL.revokeObjectURL(this.notReceipt.url);
-      this.notReceipt = null;
+      canvas.toBlob((blob) => this.enqueue(new File([blob], 'receipt-' + (this.queue.length + 1) + '.jpg', { type: 'image/jpeg' })), 'image/jpeg', 0.9);
     },
     /** One upload request: a single photo, or all sections of one long receipt. */
     sendPhotos(files, mode, force) {
@@ -465,7 +369,7 @@ Setlo.mount({
         if (!ok) return;
       }
       const batches = this.partsOfOne ? [this.queue] : this.queue.map((q) => [q]);
-      let read = 0, stored = 0, skipped = 0;
+      let read = 0, stored = 0;
       const problems = [];
       // Receipts this run saved: removed again if it's cancelled (the server finishes a scan even then).
       const run = ++this.scanRun, saved = [];
@@ -507,7 +411,6 @@ Setlo.mount({
           if (!stored) { this.state = 'queue'; return; }
           break; // keep what was already stored and show it on Review
         }
-        if (r.not_receipt) { skipped++; continue; } // nothing was kept on the bill for it
         stored++;
         saved.push(...(r.receipt_ids || []));
         if (r.ocr === 'ok' && r.found > 0) read++;
@@ -520,12 +423,7 @@ Setlo.mount({
         setTimeout(() => { if (!cancelled()) location.href = 'review-items?bill=' + this.billId; }, 300);
       } else if (stored) {
         this.state = 'failed';
-        this.failTitle = 'Couldn’t read this receipt';
         this.failMessage = problems[0];
-      } else if (skipped) {
-        this.state = 'failed';
-        this.failTitle = 'No receipt detected';
-        this.failMessage = skipped > 1 ? 'These photos don’t look like receipts, or they’re too unclear to read.' : 'This photo doesn’t look like a receipt, or it’s too unclear to read. Retake it with the whole receipt in the frame, or enter the items manually.';
       } else {
         this.state = 'queue'; // every photo skipped as a duplicate
       }

@@ -37,27 +37,6 @@ switch ($action) {
         q("UPDATE bills SET status = 'active', ocr_status = 'skipped' WHERE id = ? AND status = 'draft'", [$bill['id']]);
         json_ok(['redirect' => 'review-items?bill=' . $bill['id']]);
 
-    case 'check':
-        // One camera shot, looked at before it is queued: is it a receipt? Nothing is stored. If the check can't run
-        // (no key, busy, offline) it says so and the page lets the photo through.
-        $f = $_FILES['image'] ?? null;
-        if (!$f || $f['error'] !== UPLOAD_ERR_OK) {
-            fail('Choose a photo to check.', 422);
-        }
-        if ($f['size'] > 2 * 1024 * 1024) {
-            fail('Photo is too large to check.', 422);
-        }
-        $info = @getimagesize($f['tmp_name']);
-        if (!in_array($info['mime'] ?? '', ['image/jpeg', 'image/png', 'image/webp'], true)) {
-            fail('That file isn’t a photo we can open.', 422);
-        }
-        set_time_limit(40);
-        try {
-            json_ok(['checked' => true] + check_receipt_photo($f['tmp_name']));
-        } catch (GeminiException $e) {
-            json_ok(['checked' => false]);
-        }
-
     case 'upload':
         // images[]: one photo, or several sections of one long receipt. "image" is the older single-photo field.
         $names = save_uploaded_images('images', 'receipts', 'bill' . $bill['id'], MAX_PHOTOS)
@@ -82,13 +61,6 @@ switch ($action) {
             $status = 'ok';
         } catch (GeminiException $e) {
             [$receipts, $status, $error] = [[], 'failed', $e->getMessage()];
-        }
-        if ($status === 'ok' && !$receipts) {
-            // Gemini looked and found no receipt in it (a person, a wall…): keep nothing, and leave the bill's receipts as they are.
-            foreach ($names as $n) {
-                delete_upload('receipts', $n);
-            }
-            json_ok(['ocr' => 'ok', 'available' => true, 'not_receipt' => true, 'found' => 0, 'receipts_found' => 0, 'duplicates' => [], 'receipt_ids' => [], 'error' => null]);
         }
         $stored = store_receipts($bill, $receipts, $status, $photos, $replace);
 
