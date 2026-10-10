@@ -3,11 +3,17 @@ require __DIR__ . '/../includes/bootstrap.php';
 $user = require_login();
 $title = 'Dashboard';
 $nav = 'dashboard';
+$headExtra = ['assets/css/dashboard-bg.css'];
 $hour = (int) date('G');
 $greeting = $hour < 12 ? 'Good morning,' : ($hour < 18 ? 'Good afternoon,' : 'Good evening,');
 require __DIR__ . '/../partials/head.php';
 ?>
-<div id="app" class="device" v-cloak>
+<div id="app" class="device device-bg" v-cloak>
+
+  <!-- Earned badges drifting across the background (decoration only) -->
+  <div v-if="field.length" class="badge-field" aria-hidden="true">
+    <img v-for="(f, i) in field" :key="i" :src="f.src" :style="f.style" alt="" draggable="false" />
+  </div>
 
   <div class="app-hero px-6 pb-16 pt-8">
     <div class="flex items-center justify-between">
@@ -105,7 +111,7 @@ require __DIR__ . '/../partials/head.php';
         <a href="my-bills?new=1" class="btn btn-primary btn-sm mt-3">Create a bill</a>
       </div>
       <div v-else class="space-y-3">
-        <a v-for="b in d.bills" :key="b.id" :href="b.link" class="tile flex items-center gap-3.5 p-4">
+        <a v-for="(b, i) in d.bills" :key="b.id" :href="b.link" class="tile tile-float flex items-center gap-3.5 p-4" :style="{ '--i': i + 3 }">
           <div class="initials">{{ b.initials }}</div>
           <div class="min-w-0 flex-1">
             <p class="truncate text-[14px] font-bold text-ink">{{ b.name }}</p>
@@ -137,7 +143,7 @@ require __DIR__ . '/../partials/head.php';
 <script>
 Setlo.mount({
   data: () => ({
-    loading: true, menu: false,
+    loading: true, menu: false, field: [],
     d: { owe: { total: 0, count: 0 }, owed: { total: 0, count: 0 }, bills: [], activity: [] },
     dot: { marked_paid: 'bg-amber-400', confirmed: 'bg-brand-500', disputed: 'bg-rose-400', resent: 'bg-sky-400', nudged: 'bg-slate-400' },
   }),
@@ -147,10 +153,31 @@ Setlo.mount({
     this.showNewAchievements();
   },
   methods: {
+    /** The user's badges, repeated and scattered over a jittered grid so they fill the whole background. */
+    buildField(badges) {
+      if (!badges.length) return [];
+      const big = window.matchMedia('(min-width: 1024px)').matches;
+      const cols = big ? 6 : 4, rows = 4;
+      const rnd = (min, max) => min + Math.random() * (max - min);
+      const field = [];
+      for (let n = 0; n < cols * rows; n++) {
+        const size = Math.round(rnd(44, 86));
+        const left = ((n % cols) + 0.5) / cols * 100 + rnd(-6, 6);
+        const top = (Math.floor(n / cols) + 0.5) / rows * 100 + rnd(-8, 8);
+        field.push({
+          src: badges[n % badges.length].image,
+          style: `left:${left.toFixed(1)}%;top:${top.toFixed(1)}%;width:${size}px;height:${size}px;opacity:${rnd(0.45, 0.8).toFixed(2)};`
+            + `--dx:${Math.round(rnd(25, 60) * (Math.random() < 0.5 ? -1 : 1))}px;--dy:${Math.round(rnd(20, 50))}px;`
+            + `--dur:${rnd(9, 16).toFixed(1)}s;--delay:-${rnd(0, 12).toFixed(1)}s;`,
+        });
+      }
+      return field;
+    },
     /** Badges earned while away (someone else's action earned them): their pop-ups, once. */
     async showNewAchievements() {
       try {
         const r = await api.get('achievements.php');
+        this.field = this.buildField(r.badges.filter((a) => !a.hidden));
         if (!r.unseen.length) return;
         await Setlo.showAchievements(r.unseen);
         await api.post('achievements.php', { action: 'seen', codes: r.unseen.map((a) => a.code) });

@@ -1,0 +1,48 @@
+/* Dashboard backdrop: soft colour washes over the base gray (#f1f5f5). Plain CSS, no Tailwind build needed. */
+.device-bg {
+  background-color: #f1f5f5;
+  background-image:
+    radial-gradient(600px 420px at 8% 22%, rgba(153, 246, 228, .35), transparent 70%),
+    radial-gradient(560px 420px at 95% 78%, rgba(199, 210, 254, .35), transparent 70%),
+    radial-gradient(420px 320px at 85% 40%, rgba(253, 230, 138, .18), transparent 70%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+/* Floating cards: each drifts on its own period (--i = position, set inline) so they never move in lockstep. */
+.tile-float {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 10px 24px -10px rgba(15, 23, 42, .12);
+  transition: translate .2s ease, box-shadow .2s ease;
+  animation: float-in .5s cubic-bezier(.2, .8, .2, 1) both, card-float 6s ease-in-out infinite;
+  animation-duration: .5s, calc(6s + var(--i, 0) * .45s);
+  animation-delay: calc(var(--i, 0) * 60ms), calc(var(--i, 0) * 60ms + .5s);
+}
+a.tile-float:hover, a.tile-float:focus-visible {
+  animation-play-state: running, paused;
+  translate: 0 -3px;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, .04), 0 18px 32px -12px rgba(15, 23, 42, .2);
+}
+@keyframes float-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes card-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+/* Achievement badges as a full-page backdrop: bare images drifting behind the content. Each img sets its own
+   position, size, opacity and --dx/--dy/--dur/--delay inline. */
+.device-bg { isolation: isolate; }
+.badge-field { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.badge-field img {
+  position: absolute;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 10px rgba(15, 23, 42, .15));
+  animation: badge-drift var(--dur, 12s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+@keyframes badge-drift {
+  0%, 100% { transform: translate(0, 0) rotate(-4deg); }
+  25%      { transform: translate(var(--dx), calc(var(--dy) * -1)) rotate(3deg); }
+  50%      { transform: translate(calc(var(--dx) * -1), calc(var(--dy) * -1.5)) rotate(5deg); }
+  75%      { transform: translate(calc(var(--dx) * -.7), calc(var(--dy) * .3)) rotate(-3deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile-float, .badge-field img { animation: none; }
+  a.tile-float:hover, a.tile-float:focus-visible { translate: none; }
+}

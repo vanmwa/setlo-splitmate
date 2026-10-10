@@ -42,6 +42,8 @@ header('Cache-Control: no-store');
 <link rel="preload" href="<?= h(url($extra)) ?>" as="font" type="font/woff2" crossorigin />
 <?php elseif (str_starts_with($extra, 'https://')): ?>
 <link href="<?= h($extra) ?>" rel="stylesheet" />
+<?php elseif (str_ends_with($extra, '.css')): ?>
+<link rel="stylesheet" href="<?= h(url($extra)) ?>?v=<?= @filemtime(__DIR__ . '/../' . $extra) ?>" />
 <?php else: ?>
 <script src="<?= h(url($extra)) ?>?v=<?= @filemtime(__DIR__ . '/../' . $extra) ?>"></script>
 <?php endif; ?>
