@@ -70,6 +70,7 @@ switch ($action) {
             'found'          => array_sum(array_map(fn ($r) => count($r['items']), $receipts)),
             'receipts_found' => count($receipts),
             'duplicates'     => $stored['duplicates'],
+            'receipt_ids'    => $stored['ids'], // so a scan cancelled on the page can remove what it saved
             'error'          => $error,
             'redirect'       => 'review-items?bill=' . $bill['id'],
         ]);

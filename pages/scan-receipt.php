@@ -142,6 +142,14 @@ require __DIR__ . '/../partials/head.php';
       <p class="mt-5 text-[16px] font-extrabold text-ink">{{ step.n > 1 ? 'Reading photo ' + step.i + ' of ' + step.n + '…' : 'Reading your receipt…' }}</p>
       <p class="mt-1 text-[13px] text-slate-500">Extracting item names and prices</p>
       <div class="progress mx-auto mt-5 w-44 !h-1.5"><span :style="{ width: progress + '%', transitionDuration: '6s', transitionTimingFunction: 'ease-out' }"></span></div>
+      <div class="mt-6 grid grid-cols-2 gap-3">
+        <button @click="cancelScan(false)" class="btn-pill btn-pill-outline">Cancel</button>
+        <button @click="cancelScan(true)" class="btn-pill btn-pill-primary">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.5l1-2h11l1 2H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><circle cx="12" cy="13" r="3.2"/></svg>
+          Take again
+        </button>
+      </div>
+      <p class="mt-2 text-[11.5px] text-slate-400">Wrong receipt or a bad shot? Nothing from this scan is kept.</p>
     </div>
 
     <div v-else-if="state === 'failed'" class="text-center">
@@ -170,6 +178,8 @@ Setlo.mount({
     receiptCount: 0, addMode: <?= $adding ? 'true' : 'false' ?>,
     // Photos waiting to be scanned ({ key, file, url }), and whether they are sections of one long receipt.
     queue: [], partsOfOne: false, maxPhotos: 6, step: { i: 1, n: 1 },
+    // Bumped by Cancel / Take again: a scan still waiting on the server sees it changed and throws its result away.
+    scanRun: 0,
     // Live camera guidance. outline: 'loading' | 'on' | 'off' (OpenCV couldn't load: light and blur checks only).
     // count: receipts outlined in view (two side by side are each saved as their own receipt).
     guide: { outline: 'loading', found: false, count: 0, sides: false, light: null, sharp: true, stable: false },
@@ -361,6 +371,14 @@ Setlo.mount({
       const batches = this.partsOfOne ? [this.queue] : this.queue.map((q) => [q]);
       let read = 0, stored = 0;
       const problems = [];
+      // Receipts this run saved: removed again if it's cancelled (the server finishes a scan even then).
+      const run = ++this.scanRun, saved = [];
+      const cancelled = (r) => {
+        if (run === this.scanRun) return false;
+        if (r && r.receipt_ids) saved.push(...r.receipt_ids);
+        this.discard(saved);
+        return true;
+      };
       this.state = 'scanning';
       for (let i = 0; i < batches.length; i++) {
         this.step = { i: i + 1, n: batches.length };
@@ -373,6 +391,7 @@ Setlo.mount({
         let r;
         try {
           r = await this.sendPhotos(files, mode, false);
+          if (cancelled(r)) return;
           if (r.duplicate_photo) {
             const d = r.duplicate_photo;
             const yes = await Setlo.confirm({
@@ -381,15 +400,19 @@ Setlo.mount({
                 ? `This looks like the photo of Receipt ${d.receipt}${d.store ? ' (' + d.store + ')' : ''}, already on this bill.`
                 : 'Two of these photos look the same.',
             });
+            if (cancelled()) return;
             if (!yes) continue;
             r = await this.sendPhotos(files, mode, true);
+            if (cancelled(r)) return;
           }
         } catch (err) {
+          if (cancelled()) return;
           Setlo.toast(err.message);
           if (!stored) { this.state = 'queue'; return; }
           break; // keep what was already stored and show it on Review
         }
         stored++;
+        saved.push(...(r.receipt_ids || []));
         if (r.ocr === 'ok' && r.found > 0) read++;
         else problems.push(!r.available ? 'Receipt scanning is not set up on this server. Your photo is saved — enter the items manually.'
           : r.error || 'No line items were detected. Try better lighting, or enter the items manually.');
@@ -397,13 +420,26 @@ Setlo.mount({
       this.progress = 100;
       if (read || (stored && this.receiptCount)) {
         this.queue.forEach((q) => URL.revokeObjectURL(q.url));
-        setTimeout(() => { location.href = 'review-items?bill=' + this.billId; }, 300);
+        setTimeout(() => { if (!cancelled()) location.href = 'review-items?bill=' + this.billId; }, 300);
       } else if (stored) {
         this.state = 'failed';
         this.failMessage = problems[0];
       } else {
         this.state = 'queue'; // every photo skipped as a duplicate
       }
+    },
+    /** Cancel / Take again while reading: drop this scan and start over (retake: straight into the camera). */
+    cancelScan(retake) {
+      this.scanRun++;
+      this.progress = 0;
+      this.clearQueue();
+      Setlo.toast('Scan cancelled.');
+      // Called right from the tap, so the camera's file-input fallback still counts as a user action.
+      if (retake) this.openCamera();
+    },
+    /** Remove receipts a cancelled scan saved anyway. Quiet: if one fails, it simply shows up on Review. */
+    discard(ids) {
+      ids.splice(0).forEach((id) => api.post('receipts.php', { action: 'remove_receipt', bill_id: this.billId, receipt_id: id }).catch(() => {}));
     },
     reset() { this.state = 'capture'; this.preview = null; },
     async manual() {
