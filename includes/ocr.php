@@ -125,6 +125,31 @@ function scan_receipt(array $imagePaths, bool $partsOfOne = false): array
     return $receipts;
 }
 
+const RECEIPT_CHECK_PROMPT = <<<'TXT'
+Is this a photo of a printed receipt, bill or invoice (even if blurry, tilted, dim or partly cut off)?
+is_receipt: true if a receipt, bill or invoice is the main thing in the photo. false for people, faces, rooms, screens,
+food, objects, walls, or any other kind of document or photo.
+what: 2 to 5 words naming the main subject of the photo, e.g. "a person", "a wall", "a laptop screen", "a receipt".
+TXT;
+
+const RECEIPT_CHECK_SCHEMA = [
+    'type'       => 'OBJECT',
+    'properties' => ['is_receipt' => ['type' => 'BOOLEAN'], 'what' => ['type' => 'STRING']],
+    'required'   => ['is_receipt', 'what'],
+];
+
+/**
+ * A quick look at one photo before it is queued: is it a receipt at all? Two model attempts at most, so it stays fast.
+ * @return array{is_receipt: bool, what: string}
+ * @throws GeminiException
+ */
+function check_receipt_photo(string $imagePath): array
+{
+    $data = gemini_json([gemini_image_part($imagePath), ['text' => RECEIPT_CHECK_PROMPT]], RECEIPT_CHECK_SCHEMA, 2);
+    $what = mb_substr(trim(preg_replace('/\s+/', ' ', str_replace(['<', '>'], '', (string) ($data['what'] ?? '')))), 0, 40);
+    return ['is_receipt' => (bool) ($data['is_receipt'] ?? true), 'what' => $what];
+}
+
 /** Sections that came back as separate receipts despite the prompt: items in order, totals from the last section that has them. */
 function merge_receipt_parts(array $parts): array
 {
