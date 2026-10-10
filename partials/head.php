@@ -37,13 +37,15 @@ header('Cache-Control: no-store');
 <script src="<?= h(url('assets/js/validate.js')) ?>?v=<?= @filemtime(__DIR__ . '/../assets/js/validate.js') ?>"></script>
 <script src="<?= h(url('assets/js/receipt.js')) ?>?v=<?= @filemtime(__DIR__ . '/../assets/js/receipt.js') ?>"></script>
 <script src="<?= h(url('assets/js/people.js')) ?>?v=<?= @filemtime(__DIR__ . '/../assets/js/people.js') ?>"></script>
+<?php if (!empty($nav) && session_area() !== 'admin'): // sidebar pages: floating badge backdrop ?>
+<link rel="stylesheet" href="<?= h(url('assets/css/badge-bg.css')) ?>?v=<?= @filemtime(__DIR__ . '/../assets/css/badge-bg.css') ?>" />
+<script src="<?= h(url('assets/js/badge-field.js')) ?>?v=<?= @filemtime(__DIR__ . '/../assets/js/badge-field.js') ?>"></script>
+<?php endif; ?>
 <?php foreach ($headExtra ?? [] as $extra): ?>
 <?php if (str_ends_with($extra, '.woff2')): ?>
 <link rel="preload" href="<?= h(url($extra)) ?>" as="font" type="font/woff2" crossorigin />
 <?php elseif (str_starts_with($extra, 'https://')): ?>
 <link href="<?= h($extra) ?>" rel="stylesheet" />
-<?php elseif (str_ends_with($extra, '.css')): ?>
-<link rel="stylesheet" href="<?= h(url($extra)) ?>?v=<?= @filemtime(__DIR__ . '/../' . $extra) ?>" />
 <?php else: ?>
 <script src="<?= h(url($extra)) ?>?v=<?= @filemtime(__DIR__ . '/../' . $extra) ?>"></script>
 <?php endif; ?>
@@ -59,4 +61,4 @@ header('Cache-Control: no-store');
   }
 </script>
 </head>
-<body class="<?= h($bodyClass ?? '') ?>">
+<body class="<?= h(trim(($bodyClass ?? '') . (!empty($nav) && session_area() !== 'admin' ? ' badge-bg' : ''))) ?>">

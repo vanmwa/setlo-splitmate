@@ -1,0 +1,34 @@
+/* Sidebar pages (head.php adds body.badge-bg): soft colour washes over the gray, with the user's earned badges
+   (assets/js/badge-field.js) drifting behind the content. Plain CSS, no Tailwind build needed. */
+body.badge-bg {
+  isolation: isolate; /* own stacking context, so the z-index:-1 badge field paints above this background, not under it */
+  background-color: #f1f5f5;
+  background-image:
+    radial-gradient(600px 420px at 8% 22%, rgba(153, 246, 228, .35), transparent 70%),
+    radial-gradient(560px 420px at 95% 78%, rgba(199, 210, 254, .35), transparent 70%),
+    radial-gradient(420px 320px at 85% 40%, rgba(253, 230, 138, .18), transparent 70%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+/* The page shell is gray too; let the backdrop and badges show through it. */
+body.badge-bg .device:not(.device-white) { background: transparent; }
+
+/* Each img sets its own position, size, opacity and --dx/--dy/--dur/--delay inline. */
+.badge-field { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.badge-field img {
+  position: absolute;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 10px rgba(15, 23, 42, .15));
+  animation: badge-drift var(--dur, 12s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+@keyframes badge-drift {
+  0%, 100% { transform: translate(0, 0) rotate(-4deg); }
+  25%      { transform: translate(var(--dx), calc(var(--dy) * -1)) rotate(3deg); }
+  50%      { transform: translate(calc(var(--dx) * -1), calc(var(--dy) * -1.5)) rotate(5deg); }
+  75%      { transform: translate(calc(var(--dx) * -.7), calc(var(--dy) * .3)) rotate(-3deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge-field img { animation: none; }
+}
