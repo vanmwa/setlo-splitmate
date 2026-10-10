@@ -57,7 +57,7 @@ require __DIR__ . '/../partials/head.php';
         <p class="text-[14px] font-extrabold text-ink">Who pays what share</p>
         <button @click="evenPercents" class="text-[12px] font-bold text-brand-700">Split evenly</button>
       </div>
-      <p class="mt-0.5 text-[12px] text-slate-400">Of the whole bill: {{ peso(billTotal / 100) }}, with tax, service charge and discount.</p>
+      <p class="mt-0.5 text-[12px] text-slate-400">Of the whole bill: {{ peso(billTotal / 100) }}, with tax, service charge and discount. Change one and the rest is shared by the others.</p>
       <div class="mt-3 space-y-2">
         <label v-for="m in members" :key="m.id" class="flex items-center gap-2.5">
           <avatar :user="m" :size="28"></avatar>
@@ -219,6 +219,8 @@ Setlo.mount({
     discountLabel: { none: '', senior: ' · Senior', pwd: ' · PWD' },
     // Percentage split: typed percents per member (strings), saved after a short pause.
     splitMode: 'items', pctDraft: {}, pctTimer: null,
+    // Members whose percent was typed by hand; everyone else shares what's left of 100% (see rebalancePercents).
+    pctSet: [],
     // Installment interest: one of the fixed rates (INSTALLMENT_RATES), the lowest picked by default
     interestOn: false, rates: <?= json_encode(INSTALLMENT_RATES) ?>, interestRate: <?= (int) INSTALLMENT_RATES[0]['rate'] ?>,
   }),
@@ -316,6 +318,7 @@ Setlo.mount({
   },
   methods: {
     fillPercents() {
+      this.pctSet = [];
       this.pctDraft = Object.fromEntries(this.members.map((m) => [m.id, m.percent === null || m.percent === undefined ? '' : String(m.percent)]));
     },
     async setMode(mode) {
@@ -332,10 +335,26 @@ Setlo.mount({
       if (parseFloat(v) > 100) v = '100';
       e.target.value = v;
       this.pctDraft[m.id] = v;
+      this.rebalancePercents(m.id);
       clearTimeout(this.pctTimer);
       this.pctTimer = setTimeout(this.savePercents, 500);
     },
+    /** After a member's percent is typed: whatever is left of 100% is split evenly among the members not set by hand.
+     *  Once everyone has been set, only the member just edited is kept and the others share the rest again. */
+    rebalancePercents(id) {
+      if (!this.pctSet.includes(id)) this.pctSet.push(id);
+      let others = this.members.map((m) => m.id).filter((x) => !this.pctSet.includes(x));
+      if (!others.length) {
+        this.pctSet = [id];
+        others = this.members.map((m) => m.id).filter((x) => x !== id);
+      }
+      if (!others.length) return; // a bill of one
+      const used = this.pctSet.reduce((s, x) => s + Math.round((parseFloat(this.pctDraft[x]) || 0) * 100), 0);
+      const parts = splitEvenly(Math.max(0, 10000 - used), others); // hundredths of a percent
+      others.forEach((x) => { this.pctDraft[x] = String(parts[x] / 100); });
+    },
     evenPercents() {
+      this.pctSet = [];
       const ids = this.members.map((m) => m.id);
       const parts = splitEvenly(10000, ids); // hundredths of a percent, leftovers to the first members
       this.pctDraft = Object.fromEntries(ids.map((id) => [id, String(parts[id] / 100)]));
